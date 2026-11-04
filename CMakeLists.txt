@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.25)
 
-project(DawAudioStreamer VERSION 0.4.5 LANGUAGES CXX)
+project(DawAudioStreamer VERSION 0.4.5 LANGUAGES C CXX)
 
 set(DAS_DISPLAY_VERSION "0.4.5" CACHE STRING
     "Public version shown to users and used in release artifact names")
