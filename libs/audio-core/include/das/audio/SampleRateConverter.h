@@ -32,6 +32,9 @@ public:
   [[nodiscard]] std::size_t maximumOutputFrames() const noexcept;
   [[nodiscard]] bool isPrepared() const noexcept;
   [[nodiscard]] bool isBypassed() const noexcept;
+  // Input-to-output delay in seconds: how long after an input sample enters
+  // process() its converted counterpart can come out.
+  [[nodiscard]] double latencySeconds() const noexcept;
 
 private:
   struct Impl;

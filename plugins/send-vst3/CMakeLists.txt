@@ -1,45 +1,14 @@
-add_library(das_discord_bridge STATIC
-  Source/DiscordBridge.cpp
-  Source/DiscordBridge.h
-  Source/VirtualAudioEndpoint.cpp
-  Source/VirtualAudioEndpoint.h
-)
-set_target_properties(das_discord_bridge PROPERTIES POSITION_INDEPENDENT_CODE ON)
-target_include_directories(das_discord_bridge PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/Source")
-target_link_libraries(das_discord_bridge PUBLIC das_transport)
-if(WIN32)
-  target_link_libraries(das_discord_bridge PRIVATE ole32 uuid)
-endif()
-
-if(WIN32)
-  configure_file(Source/VirtualAudioCheckVersion.rc.in
-                 "${CMAKE_CURRENT_BINARY_DIR}/VirtualAudioCheckVersion.rc" @ONLY)
-  add_executable(das_virtual_audio_check
-    Source/VirtualAudioCheckMain.cpp
-    "${CMAKE_CURRENT_BINARY_DIR}/VirtualAudioCheckVersion.rc"
-  )
-  target_link_libraries(das_virtual_audio_check PRIVATE das_discord_bridge ole32 uuid)
-  set_target_properties(das_virtual_audio_check PROPERTIES
-    OUTPUT_NAME "das-virtual-audio-check"
-  )
-endif()
-
-set(das_send_formats VST3)
-if(APPLE)
-  list(APPEND das_send_formats AU)
-endif()
-
-juce_add_plugin(DasSend
-  PRODUCT_NAME "DAS Send"
+juce_add_plugin(KinuStream
+  PRODUCT_NAME "Kinu Stream"
   VERSION "${DAS_COMPONENT_VERSION}"
   COMPANY_NAME "${DAS_PUBLISHER}"
   COMPANY_WEBSITE "${DAS_REPOSITORY_URL}"
-  COMPANY_COPYRIGHT "${DAS_COPYRIGHT}"
-  BUNDLE_ID "org.dawaudiostreamer.send"
-  PLUGIN_MANUFACTURER_CODE Daud
-  PLUGIN_CODE Ds01
-  FORMATS ${das_send_formats}
-  VST3_CATEGORIES Fx
+  BUNDLE_ID "com.keinoaza.kinustream"
+  PLUGIN_MANUFACTURER_CODE Kein
+  PLUGIN_CODE Knst
+  FORMATS VST3 AU
+  VST3_CATEGORIES Fx Tools
+  AU_MAIN_TYPE kAudioUnitType_Effect
   VST3_AUTO_MANIFEST FALSE
   IS_SYNTH FALSE
   NEEDS_MIDI_INPUT FALSE
@@ -49,46 +18,22 @@ juce_add_plugin(DasSend
   COPY_PLUGIN_AFTER_BUILD FALSE
 )
 
-if(WIN32)
-  # Refresh Windows file metadata when the plugin version changes on an
-  # incremental build; JUCE's resource rule does not track its Info.txt input.
-  get_target_property(das_send_generated_sources DasSend JUCE_GENERATED_SOURCES_DIRECTORY)
-  get_target_property(das_send_info_file DasSend JUCE_INFO_FILE)
-  add_custom_command(
-    OUTPUT "${das_send_generated_sources}/DasSend_resources.rc"
-    APPEND DEPENDS "${das_send_info_file}"
-  )
-endif()
-
-target_sources(DasSend PRIVATE
+target_sources(KinuStream PRIVATE
   Source/PluginEditor.cpp
   Source/PluginEditor.h
   Source/PluginProcessor.cpp
   Source/PluginProcessor.h
 )
-target_compile_definitions(DasSend PUBLIC
+target_compile_definitions(KinuStream PUBLIC
   JUCE_WEB_BROWSER=0
   JUCE_USE_CURL=0
+  JUCE_VST3_CAN_REPLACE_VST2=0
   JUCE_IGNORE_VST3_MISMATCHED_PARAMETER_ID_WARNING=1
 )
-target_link_libraries(DasSend PRIVATE
+target_link_libraries(KinuStream PRIVATE
   das_audio_core
-  das_discord_bridge
+  das_sync
   das_transport
   juce::juce_audio_utils
   juce::juce_audio_processors
 )
-if(WIN32)
-  target_link_libraries(DasSend PRIVATE shell32 advapi32)
-endif()
-
-if(APPLE)
-  install(DIRECTORY "$<TARGET_BUNDLE_DIR:DasSend_VST3>"
-          DESTINATION "Library/Audio/Plug-Ins/VST3"
-          USE_SOURCE_PERMISSIONS)
-  install(DIRECTORY "$<TARGET_BUNDLE_DIR:DasSend_AU>"
-          DESTINATION "Library/Audio/Plug-Ins/Components"
-          USE_SOURCE_PERMISSIONS)
-else()
-  install(DIRECTORY "$<TARGET_FILE_DIR:DasSend_VST3>/DAS Send.vst3" DESTINATION VST3)
-endif()

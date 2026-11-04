@@ -1,0 +1,19 @@
+sender: drift estimate 1000.1 ppm (true 1000), lead 30.4 ms
+mix callbacks 5620 (silent 24), timestamp gaps 0
+timing error (mix time - DAW time): 0.183 ms, worst deviation 0.077 ms
+drift over the run: first 20 s 0.177 ms, last 20 s before offset 0.194 ms
+after +45 ms manual offset: -44.825 ms (expected -44.817), worst deviation 0.008 ms
+worst 1 kHz continuity residual 8.07e-05 at 0.78 s
+libobs log lines of interest: 6
+  | audio settings reset:
+	samples per sec: 48000
+	speakers:        2
+	max buffering:   960 milliseconds
+	buffering type:  dynamically increasing
+  | Loading module: kinu-stream-obs
+  | source 'Kinu Stream' (kinu_stream_audio_source) created
+  | adding 64 milliseconds of audio buffering, total audio buffering is now 64 milliseconds (source: Kinu Stream)
+
+  | Audio timestamp for 'Kinu Stream' exceeded TS_SMOOTHING_THRESHOLD, diff=85000000 ns, expected 53157159697416, input 53157244697416
+  | adding 42 milliseconds of audio buffering, total audio buffering is now 106 milliseconds (source: Kinu Stream)
+

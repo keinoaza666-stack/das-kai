@@ -9,7 +9,7 @@
   <key>CFBundleName</key>
   <string>${MACOSX_BUNDLE_BUNDLE_NAME}</string>
   <key>CFBundleDisplayName</key>
-  <string>DAS Audio</string>
+  <string>Kinu Stream</string>
   <key>CFBundlePackageType</key>
   <string>BNDL</string>
   <key>CFBundleInfoDictionaryVersion</key>

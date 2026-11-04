@@ -27,7 +27,7 @@ std::string posixName(const std::wstring_view name) {
     }
   }
   char result[31] {};
-  std::snprintf(result, sizeof(result), "/das-%08x-%016llx",
+  std::snprintf(result, sizeof(result), "/kst-%08x-%016llx",
                 static_cast<unsigned int>(getuid()),
                 static_cast<unsigned long long>(hash));
   return result;

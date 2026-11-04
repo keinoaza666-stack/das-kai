@@ -1,93 +1,61 @@
-# DawAudioStreamer
+# Kinu Stream
 
-[日本語](README.ja.md)
+DAWの音を、仮想オーディオデバイスなしでOBSに送るプラグインです。DawAudioStreamer(yoruhinot 作)を改造し、次の3つを足しています。
 
-Stream your DAW's audio — ASIO and all — to OBS and Discord.
+- **クロックずれの吸収**: DAWのオーディオインターフェースとMac本体は別々の時計で動いています。そのずれを再生速度のごくわずかな伸び縮み(数十ppm、音程にして0.1セント未満)で吸収し、長時間の配信でも歌とOBSの他の音の合い方が変わらないようにします。
+- **時刻の受け渡しと遅延の自動補正**: 音がDAWで処理された時刻をOBSに渡します。OBSはその時刻に合わせて音を置きます。プラグインからOBSまでの受け渡しの遅れは自動で差し引かれます。配信と録画では、映像も同じ時刻を基準に並べられます(OBSのソースコードで確認。実機の録画での確認はまだです)。
+- **手動補正**: 歌い手がオケを聞く経路の遅れなど、プラグインから測れない分を手で足せます。
 
-DawAudioStreamer is a streaming plugin that routes your DAW's master audio to OBS and Discord screen share without touching your audio interface settings. Available as a VST3 for Windows and as an AU/VST3 preview for Intel and Apple Silicon Macs.
+対応環境は macOS 13 以降の Apple Silicon、OBS 32 系です。Windows には対応していません。
 
-> The macOS version is a preview release. Test with a short recording or a private stream before going live.
+## 入れ方
 
-## Before you start
+ビルドしてから、付属のスクリプトで入れます。入る場所はこのユーザーの3か所だけです。
 
-- **OBS only:** the DawAudioStreamer installer is all you need.
-- **Discord on Windows:** VB-CABLE is required. Follow the [Discord setup guide](https://yoruhinot.github.io/DawAudioStreamer/en/?lang=en#discord) if you want screen share audio.
+```bash
+scripts/install.sh
+```
 
-On macOS, the plugin is primarily for OBS. Discord on macOS can use the system's built-in screen share audio, so no virtual audio device is needed.
+- `~/Library/Audio/Plug-Ins/VST3/Kinu Stream.vst3`
+- `~/Library/Audio/Plug-Ins/Components/Kinu Stream.component`
+- `~/Library/Application Support/obs-studio/plugins/kinu-stream-obs.plugin`
 
-## Setup
+元の DawAudioStreamer とは名前も中身の識別子も別なので、両方入れたままで構いません。
 
-### 1. Install
+## 使い方
 
-1. Close OBS, Discord, and your DAW.
-2. Download the installer from [Releases](https://github.com/yoruhinot/DawAudioStreamer/releases).
-3. Run the Windows installer, or extract the Mac ZIP and open **DawAudioStreamer Setup.app**. Wait for installation to complete.
-4. Insert one instance of **DAS Send** at the end of your DAW's master bus.
+1. DAW を開き直し、マスターの最後に「Kinu Stream」を1個挿します(VST3 か AU)。
+2. OBS を開き直し、「ソース」の[＋]から「Kinu Stream（DAW）」を追加します。設定は不要です。
+3. DAW を再生し、プラグイン画面の OBS 欄が「OK」になることを確かめます。
 
-For Windows Discord support, follow the [VB-CABLE setup guide](https://yoruhinot.github.io/DawAudioStreamer/en/?lang=en#vbcable), then restart Windows. OBS does not require it.
+## プラグイン画面の見方
 
-If macOS blocks opening Setup, see the [Mac setup help](https://yoruhinot.github.io/DawAudioStreamer/en/?lang=en#macos-help). Older Mac ZIPs use Install.command.
-
-### 2. OBS
-
-1. In OBS, click **+** under Sources.
-2. Add **DAS Audio (DAW)** — no settings needed. “No properties available” in older versions is normal.
-3. Play audio and check the OBS audio mixer or a recording.
-
-### 3. Discord
-
-1. Confirm the Discord indicator in DAS Send shows a green `OK`.
-2. In Discord, open **Share Screen**.
-3. Choose your DAW application to share just the DAW, or choose your full screen to include VST windows too.
-
-Your Discord microphone settings don't need to change.
-Ask a viewer to confirm they can hear your audio.
-
-## Plugin status display
-
-| Display | Meaning |
+| 表示 | 意味 |
 |---|---|
-| Green `OK` | OBS is connected / the Discord audio path is ready. Check the recording or viewer's audio too. |
-| Gray `WAIT` | Add **DAS Audio (DAW)** as a source in OBS. |
-| Yellow `VB-CABLE` | Install VB-CABLE and restart Windows. |
-| Yellow `1 ONLY` | Remove extra DAS Send instances — only one allowed. |
-| Red `!` | Restart OBS first, then your DAW. |
-| Gray, no text | DAS Send is bypassed. |
+| OBS 欄の OK / WAIT | OBS が受信中なら OK。WAIT は OBS 側のソースがまだない状態 |
+| CLOCK +23 ppm | DAW の時計が Mac 本体より何 ppm 速いか。起動直後は「locking...」 |
+| SYNC の大きな数字 | OBS の中で、DAW の音を何ミリ秒前に置いているか(自動 + 手動) |
+| AUTO | 受け渡しの遅れを自動で差し引くかどうか。通常はオン |
+| MANUAL | 手で足す補正。プラスは「もっと前に置く」。ダブルクリックで 0 に戻ります |
 
-## Audio doubling
+## 手動補正の値の決め方
 
-- Insert DAS Send on the master bus once only.
-- In OBS, don't capture the same audio through Desktop Audio alongside DAS Audio (DAW).
-- In Discord, don't start both an application share and a full-screen share at the same time.
+歌い手がオケを聞く経路の遅れ(ブラウザ → スピーカーやヘッドホン)は、機材と聞き方が同じなら毎回同じです。一度測れば使い回せます。
 
-## Audio quality
+1. OBS の録画を「トラックを分けて保存」にし、オケ(ブラウザ)と Kinu Stream を別トラックにします。
+2. オケの拍に合わせて、マイクの前で手を数回たたいて録画します。
+3. 録画を DAW や編集ソフトに読み込み、オケの拍と手拍子の波形のずれをミリ秒で測ります。
+4. 手拍子が遅れていれば、その値を MANUAL に入れます。
 
-DAS Send does not alter the audio or volume returned to your DAW. The stream output is converted to stereo 48 kHz, then compressed by OBS or Discord according to their own settings. Keep your DAW master below 0 dBFS to avoid clipping.
+## 知っておくこと
 
-## Requirements
+- MANUAL や AUTO を切り替えると、0.1 秒ほど音が途切れます。MANUAL を大きく増やすほど、途切れも長くなります(+45 ミリ秒で約 0.13 秒)。OBS に新しい時刻を受け入れさせるための切れ目です。配信中ではなく、準備の時に合わせてください。
+- OBS は、遅れて届く音に合わせて全体の待ち時間を自動で増やします。一度増えた待ち時間は、OBS を開き直すまで減りません。配信と録画の音と映像は揃ったままです。
+- OBS の画面のプレビューとモニター音は、この待ち時間の分だけずれて見えることがあります。配信と録画には影響しません。
+- DAW の書き出し(バウンス)中は送りません。バイパス中は無音を送ります。
+- 送れるのは 1 台の Mac で同時に 1 個だけです。2 個目は画面に「1 ONLY」と出ます。
+- Cubase の ASIO-Guard など、DAW が先読みで処理する設定での動きは未確認です。先読みの分だけ自動補正が多めにかかる可能性があり、その場合は MANUAL をマイナスにして合わせます。
 
-- Windows 11 x64
-- 64-bit DAW with VST3 support
-- OBS Studio x64
-- Discord desktop app
-- Intel or Apple Silicon Mac running macOS 13 or later (AU/VST3, preview)
+## 開発者向け
 
-Tested with Fender Studio Pro 8, REAPER, Cubase, and Ableton Live 12.
-
-## Uninstall
-
-Close your DAW and OBS, then remove DawAudioStreamer from **Installed apps** in Windows Settings. Your DAW projects, OBS scenes, ASIO settings, and any separately installed virtual audio drivers are not removed.
-
-## Download & contact
-
-Download from [GitHub Releases](https://github.com/yoruhinot/DawAudioStreamer/releases). Windows and macOS may show a security warning on first run.
-
-[Code signing policy](CODE_SIGNING.md)
-
-For bugs or feature requests, reach out on [X (@yoruhinot)](https://x.com/yoruhinot) or open an [Issue](https://github.com/yoruhinot/DawAudioStreamer/issues).
-
-## License
-
-See [LICENSE](LICENSE) for the license and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for third-party attributions.
-
-To build from source, see [build instructions](docs/development.md).
+ビルド手順・検証方法・既知の罠は `verify-map.md`、コードを変える時の約束は `dev-rules.md`、上流からの変更点は `MODIFICATIONS.md` にあります。ライセンスは `LICENSE` を参照してください(プラグイン本体は AGPL-3.0)。

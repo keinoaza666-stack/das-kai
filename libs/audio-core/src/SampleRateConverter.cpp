@@ -118,4 +118,10 @@ std::size_t SampleRateConverter::maximumOutputFrames() const noexcept {
 bool SampleRateConverter::isPrepared() const noexcept { return impl_->prepared; }
 bool SampleRateConverter::isBypassed() const noexcept { return impl_->bypassed; }
 
+double SampleRateConverter::latencySeconds() const noexcept {
+  if (!impl_->prepared || impl_->bypassed || !impl_->converters[0]) return 0.0;
+  return static_cast<double>(impl_->converters[0]->getInputRequiredForOutput(1)) /
+         impl_->inputRate;
+}
+
 } // namespace das::audio

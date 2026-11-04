@@ -1,14 +1,20 @@
-DawAudioStreamer ライセンス概要
-================================
+Kinu Stream ライセンス概要
+==========================
 
-Copyright (c) 2026 yoruhinot
+Kinu Stream は DawAudioStreamer(https://github.com/yoruhinot/DawAudioStreamer)の
+改変版(フォーク)です。変更点と日付は MODIFICATIONS.md にあります。
+
+Copyright (c) 2026 yoruhinot(上流 DawAudioStreamer)
+Copyright (c) 2026 Keinoaza(Kinu Stream での変更・追加部分)
 
 このリポジトリはコンポーネントごとに次のライセンスを使用します。
 
-- JUCEをリンクする`apps/engine`、`plugins/send-vst3`：
+- JUCEをリンクする`plugins/send-vst3`と`tests/vst3_*.cpp`：
   GNU Affero General Public License version 3（AGPL-3.0-only）。
-- `libs/audio-core`：GNU General Public License version 3またはそれ以降
+- `libs/audio-core`（追加した`StreamSender`を含む）、`tests/sync_tests.cpp`、
+  `tests/obs_harness.cpp`：GNU General Public License version 3またはそれ以降
   （GPL-3.0-or-later）。r8brain部分は上流のMIT Licenseにも従います。
+- `libs/sync`（Kinu Streamで追加）：MIT License。
 - `plugins/obs-source`：GNU General Public License version 3またはそれ以降
   （GPL-3.0-or-later）。
 - `libs/transport`：MIT License。`libs/transport/LICENSE`を参照してください。

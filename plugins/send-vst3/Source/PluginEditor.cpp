@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+// Modified for Kinu Stream (2026-11-04): Discord card replaced by the sync
+// panel (latency display, auto compensation, manual offset). See MODIFICATIONS.md.
 #include "PluginEditor.h"
+
+#include <cmath>
 
 namespace {
 struct Theme {
@@ -49,63 +53,70 @@ void drawWaveIcon(juce::Graphics& graphics, juce::Rectangle<float> bounds,
   }
 }
 
-void drawShareIcon(juce::Graphics& graphics, juce::Rectangle<float> bounds,
-                   const juce::Colour colour) {
-  graphics.setColour(colour.withAlpha(0.11F));
-  graphics.fillEllipse(bounds);
-  graphics.setColour(colour);
-  auto screen = bounds.reduced(9.0F, 11.0F).withTrimmedBottom(4.0F);
-  graphics.drawRoundedRectangle(screen, 2.0F, 1.6F);
-  const auto centreX = screen.getCentreX();
-  graphics.drawLine(centreX, screen.getBottom(), centreX, screen.getBottom() + 4.0F, 1.5F);
-  graphics.drawLine(centreX - 5.0F, screen.getBottom() + 4.0F,
-                    centreX + 5.0F, screen.getBottom() + 4.0F, 1.5F);
-  auto arrow = juce::Path();
-  arrow.startNewSubPath(screen.getCentreX() - 4.0F, screen.getCentreY() + 2.0F);
-  arrow.lineTo(screen.getCentreX() + 4.0F, screen.getCentreY() - 6.0F);
-  arrow.lineTo(screen.getCentreX() + 4.0F, screen.getCentreY() - 1.0F);
-  arrow.lineTo(screen.getCentreX() + 8.0F, screen.getCentreY() - 1.0F);
-  graphics.strokePath(arrow, juce::PathStrokeType(1.7F));
+juce::String formatMs(const double milliseconds, const bool signedValue) {
+  const auto text = juce::String(std::abs(milliseconds), 1);
+  if (!signedValue) return text;
+  return (milliseconds < -0.05 ? "-" : "+") + text;
 }
-}
+} // namespace
 
 DasSendEditor::DasSendEditor(DasSendProcessor& processor)
     : AudioProcessorEditor(processor), processor_(processor) {
   darkMode_ = juce::Desktop::getInstance().isDarkModeActive();
-  const auto theme = themeFor(darkMode_);
 
-  title_.setText("DAS Send", juce::dontSendNotification);
+  title_.setText("Kinu Stream", juce::dontSendNotification);
   title_.setFont(juce::FontOptions(25.0F, juce::Font::bold));
-  title_.setColour(juce::Label::textColourId, theme.ink);
   addAndMakeVisible(title_);
 
-  subtitle_.setText("DAW  >  STREAM", juce::dontSendNotification);
+  subtitle_.setText("DAW  >  OBS", juce::dontSendNotification);
   subtitle_.setFont(juce::FontOptions(11.0F, juce::Font::bold));
-  subtitle_.setColour(juce::Label::textColourId, theme.graphite);
   subtitle_.setJustificationType(juce::Justification::centredRight);
   addAndMakeVisible(subtitle_);
 
-  for (auto* heading : {&obsTitle_, &discordTitle_}) {
+  for (auto* heading : {&obsTitle_, &syncTitle_, &manualTitle_}) {
     heading->setFont(juce::FontOptions(13.0F, juce::Font::bold));
-    heading->setColour(juce::Label::textColourId, theme.graphite);
     addAndMakeVisible(*heading);
   }
   obsTitle_.setText("OBS", juce::dontSendNotification);
-  discordTitle_.setText("DISCORD", juce::dontSendNotification);
+  syncTitle_.setText("SYNC", juce::dontSendNotification);
+  manualTitle_.setText("MANUAL", juce::dontSendNotification);
 
-  for (auto* status : {&obsStatus_, &discordStatus_}) {
-    status->setFont(juce::FontOptions(18.0F, juce::Font::bold));
-    status->setColour(juce::Label::textColourId, theme.ink);
-    status->setJustificationType(juce::Justification::centred);
-    addAndMakeVisible(*status);
+  obsStatus_.setFont(juce::FontOptions(18.0F, juce::Font::bold));
+  obsStatus_.setJustificationType(juce::Justification::centred);
+  addAndMakeVisible(obsStatus_);
+
+  syncTotal_.setFont(juce::FontOptions(30.0F, juce::Font::bold));
+  addAndMakeVisible(syncTotal_);
+  for (auto* small : {&clockInfo_, &syncDirection_, &syncBreakdown_, &detail_}) {
+    small->setFont(juce::FontOptions(12.0F));
+    addAndMakeVisible(*small);
   }
+  syncDirection_.setFont(juce::FontOptions(11.0F, juce::Font::bold));
+  detail_.setJustificationType(juce::Justification::centredRight);
 
-  detail_.setFont(juce::FontOptions(13.0F));
-  detail_.setColour(juce::Label::textColourId, theme.graphite);
-  detail_.setJustificationType(juce::Justification::centredLeft);
-  addAndMakeVisible(detail_);
+  addAndMakeVisible(autoButton_);
+  autoAttachment_ = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
+      processor_.parameters(), DasSendProcessor::kAutoCompensationId, autoButton_);
 
-  setSize(620, 280);
+  manualSlider_.setTextBoxStyle(juce::Slider::TextBoxRight, false, 92, 26);
+  manualSlider_.setVelocityModeParameters(0.25, 1, 0.0, false, juce::ModifierKeys::shiftModifier);
+  addAndMakeVisible(manualSlider_);
+  manualAttachment_ = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+      processor_.parameters(), DasSendProcessor::kManualOffsetId, manualSlider_);
+  // Custom text only after the attachment, which installs its own formatter.
+  manualSlider_.textFromValueFunction = [](const double value) {
+    return formatMs(value, true) + " ms";
+  };
+  manualSlider_.valueFromTextFunction = [](const juce::String& text) {
+    return text.retainCharacters("+-.0123456789").getDoubleValue();
+  };
+  manualSlider_.updateText();
+  if (auto* parameter = processor_.parameters().getParameter(DasSendProcessor::kManualOffsetId))
+    manualSlider_.setDoubleClickReturnValue(
+        true, parameter->convertFrom0to1(parameter->getDefaultValue()));
+
+  setSize(620, 330);
+  applyTheme();
   juce::Desktop::getInstance().addDarkModeSettingListener(this);
   startTimerHz(5);
   timerCallback();
@@ -138,21 +149,31 @@ void DasSendEditor::darkModeSettingChanged() {
 void DasSendEditor::applyTheme() {
   const auto theme = themeFor(darkMode_);
   title_.setColour(juce::Label::textColourId, theme.ink);
-  subtitle_.setColour(juce::Label::textColourId, theme.graphite);
-  obsTitle_.setColour(juce::Label::textColourId, theme.graphite);
-  discordTitle_.setColour(juce::Label::textColourId, theme.graphite);
-  detail_.setColour(juce::Label::textColourId, theme.graphite);
+  syncTotal_.setColour(juce::Label::textColourId, theme.ink);
+  for (auto* label : {&subtitle_, &obsTitle_, &syncTitle_, &manualTitle_, &clockInfo_,
+                      &syncDirection_, &syncBreakdown_, &detail_})
+    label->setColour(juce::Label::textColourId, theme.graphite);
+
+  autoButton_.setColour(juce::ToggleButton::textColourId, theme.ink);
+  autoButton_.setColour(juce::ToggleButton::tickColourId, theme.ink);
+  autoButton_.setColour(juce::ToggleButton::tickDisabledColourId, theme.graphite);
+  manualSlider_.setColour(juce::Slider::backgroundColourId, theme.smoke);
+  manualSlider_.setColour(juce::Slider::trackColourId, theme.markerYellow);
+  manualSlider_.setColour(juce::Slider::thumbColourId, theme.ink);
+  manualSlider_.setColour(juce::Slider::textBoxTextColourId, theme.ink);
+  manualSlider_.setColour(juce::Slider::textBoxBackgroundColourId, theme.card);
+  manualSlider_.setColour(juce::Slider::textBoxOutlineColourId, theme.linen);
   timerCallback();
 }
 
-void DasSendEditor::updateCard(juce::Label& label, const juce::String& value,
-                               const VisualState state) {
+void DasSendEditor::updateStatus(const juce::String& value, const VisualState state) {
   const auto theme = themeFor(darkMode_);
-  label.setText(value, juce::dontSendNotification);
-  label.setColour(juce::Label::textColourId,
-                  state == VisualState::active || state == VisualState::error
-                      ? juce::Colours::white
-                      : state == VisualState::warning ? juce::Colours::black : theme.ink);
+  obsState_ = state;
+  obsStatus_.setText(value, juce::dontSendNotification);
+  obsStatus_.setColour(juce::Label::textColourId,
+                       state == VisualState::active || state == VisualState::error
+                           ? juce::Colours::white
+                           : state == VisualState::warning ? juce::Colours::black : theme.ink);
 }
 
 void DasSendEditor::paint(juce::Graphics& graphics) {
@@ -161,17 +182,16 @@ void DasSendEditor::paint(juce::Graphics& graphics) {
 
   auto marker = juce::Path();
   marker.startNewSubPath(24.0F, 46.0F);
-  marker.lineTo(161.0F, 42.0F);
-  marker.lineTo(165.0F, 58.0F);
+  marker.lineTo(181.0F, 42.0F);
+  marker.lineTo(185.0F, 58.0F);
   marker.lineTo(22.0F, 61.0F);
   marker.closeSubPath();
   graphics.setColour(theme.markerYellow.withAlpha(0.9F));
   graphics.fillPath(marker);
 
-  const auto obsCard = juce::Rectangle<float>(24.0F, 82.0F, 278.0F, 116.0F);
-  const auto discordCard = juce::Rectangle<float>(318.0F, 82.0F, 278.0F, 116.0F);
-  drawRaisedPanel(graphics, obsCard, 12.0F, theme);
-  drawRaisedPanel(graphics, discordCard, 12.0F, theme);
+  drawRaisedPanel(graphics, {24.0F, 82.0F, 278.0F, 124.0F}, 12.0F, theme);
+  drawRaisedPanel(graphics, {318.0F, 82.0F, 278.0F, 124.0F}, 12.0F, theme);
+  drawRaisedPanel(graphics, {24.0F, 220.0F, 572.0F, 92.0F}, 12.0F, theme);
 
   const auto statusFill = [&theme](const VisualState state) {
     switch (state) {
@@ -183,32 +203,28 @@ void DasSendEditor::paint(juce::Graphics& graphics) {
     return theme.smoke;
   };
   graphics.setColour(statusFill(obsState_));
-  graphics.fillRoundedRectangle(106.0F, 130.0F, 168.0F, 32.0F, 16.0F);
-  graphics.setColour(statusFill(discordState_));
-  graphics.fillRoundedRectangle(400.0F, 130.0F, 168.0F, 32.0F, 16.0F);
-
-  drawWaveIcon(graphics, juce::Rectangle<float>(44.0F, 112.0F, 48.0F, 48.0F),
+  graphics.fillRoundedRectangle(106.0F, 120.0F, 168.0F, 32.0F, 16.0F);
+  drawWaveIcon(graphics, juce::Rectangle<float>(44.0F, 104.0F, 48.0F, 48.0F),
                colourFor(obsState_));
-  drawShareIcon(graphics, juce::Rectangle<float>(338.0F, 112.0F, 48.0F, 48.0F),
-                colourFor(discordState_));
-
-  if (detail_.getText().isNotEmpty()) {
-    graphics.setColour(theme.detail);
-    graphics.fillRoundedRectangle(24.0F, 220.0F, 572.0F, 38.0F, 12.0F);
-    graphics.setColour(theme.linen);
-    graphics.drawRoundedRectangle(24.5F, 220.5F, 571.0F, 37.0F, 12.0F, 1.0F);
-  }
 }
 
 void DasSendEditor::resized() {
   title_.setBounds(26, 19, 250, 40);
   subtitle_.setBounds(360, 25, 234, 26);
 
-  obsTitle_.setBounds(108, 101, 168, 24);
-  obsStatus_.setBounds(119, 127, 144, 38);
-  discordTitle_.setBounds(402, 101, 168, 24);
-  discordStatus_.setBounds(413, 127, 144, 38);
-  detail_.setBounds(42, 222, 536, 34);
+  obsTitle_.setBounds(108, 94, 168, 22);
+  obsStatus_.setBounds(119, 117, 144, 38);
+  clockInfo_.setBounds(42, 168, 250, 24);
+
+  syncTitle_.setBounds(338, 92, 120, 20);
+  syncTotal_.setBounds(336, 110, 250, 40);
+  syncDirection_.setBounds(338, 148, 250, 18);
+  syncBreakdown_.setBounds(338, 170, 250, 24);
+
+  autoButton_.setBounds(40, 232, 150, 30);
+  detail_.setBounds(200, 232, 380, 30);
+  manualTitle_.setBounds(42, 272, 80, 28);
+  manualSlider_.setBounds(118, 272, 466, 28);
 }
 
 void DasSendEditor::timerCallback() {
@@ -219,65 +235,58 @@ void DasSendEditor::timerCallback() {
     lastObsActivityMs_ = now;
   }
   const auto obsActive = lastObsActivityMs_ > 0.0 && now - lastObsActivityMs_ < 1500.0;
+  const auto status = processor_.obsStatus();
+  obsConnected_ = obsActive && status.delayNs > 0;
 
   if (!processor_.isPrimarySender()) {
-    obsState_ = VisualState::warning;
-    discordState_ = VisualState::warning;
-    updateCard(obsStatus_, "1 ONLY", obsState_);
-    updateCard(discordStatus_, "1 ONLY", discordState_);
-    detail_.setText("DAS Send  x  1", juce::dontSendNotification);
-  } else if (processor_.isBypassed()) {
-    obsState_ = VisualState::waiting;
-    discordState_ = VisualState::waiting;
-    updateCard(obsStatus_, {}, obsState_);
-    updateCard(discordStatus_, {}, discordState_);
-    detail_.setText({}, juce::dontSendNotification);
+    updateStatus("1 ONLY", VisualState::warning);
+    detail_.setText("Kinu Stream  x  1 per Mac", juce::dontSendNotification);
+  } else if (processor_.isRenderingOffline()) {
+    updateStatus("EXPORT", VisualState::waiting);
+    detail_.setText("Not sent while exporting", juce::dontSendNotification);
   } else if (!processor_.sampleRateSupported()) {
-    obsState_ = VisualState::error;
-    discordState_ = VisualState::error;
-    updateCard(obsStatus_, "8-384 kHz", obsState_);
-    updateCard(discordStatus_, "8-384 kHz", discordState_);
+    updateStatus("8-384 kHz", VisualState::error);
     detail_.setText({}, juce::dontSendNotification);
   } else if (!processor_.transportReady()) {
-    obsState_ = VisualState::error;
-    discordState_ = VisualState::error;
-    updateCard(obsStatus_, "!", obsState_);
-    updateCard(discordStatus_, "!", discordState_);
+    updateStatus("!", VisualState::error);
     detail_.setText("RESTART   OBS  >  DAW", juce::dontSendNotification);
+  } else if (processor_.isBypassed()) {
+    updateStatus("BYPASS", VisualState::waiting);
+    detail_.setText("Sending silence", juce::dontSendNotification);
   } else {
-    obsState_ = obsActive ? VisualState::active : VisualState::waiting;
-    updateCard(obsStatus_, obsActive ? "OK" : "WAIT", obsState_);
-
-#if defined(__APPLE__)
-    discordState_ = VisualState::active;
-    updateCard(discordStatus_, "OK", discordState_);
-    detail_.setText("OBS + DAS Audio     /     DISCORD + SHARE",
+    updateStatus(obsActive ? "OK" : "WAIT", obsActive ? VisualState::active : VisualState::waiting);
+    detail_.setText(obsActive ? "+ = earlier in OBS   double-click = 0"
+                              : "Add source  Kinu Stream (DAW)  in OBS",
                     juce::dontSendNotification);
-#else
-    const auto bridgeState = processor_.discordBridgeState();
-    if (bridgeState == DiscordBridge::State::ready) {
-      discordState_ = VisualState::active;
-      updateCard(discordStatus_, "OK", discordState_);
-    } else if (bridgeState == DiscordBridge::State::virtualOutputRequired) {
-      discordState_ = VisualState::warning;
-      updateCard(discordStatus_, "VB-CABLE", discordState_);
-    } else if (bridgeState == DiscordBridge::State::starting) {
-      discordState_ = VisualState::waiting;
-      updateCard(discordStatus_, "...", discordState_);
-    } else {
-      discordState_ = VisualState::error;
-      updateCard(discordStatus_, "!", discordState_);
-    }
+  }
 
-    if (bridgeState == DiscordBridge::State::virtualOutputRequired) {
-      detail_.setText("DISCORD + VB-CABLE", juce::dontSendNotification);
-    } else if (bridgeState == DiscordBridge::State::stopped) {
-      detail_.setText("RESTART   DAW", juce::dontSendNotification);
-    } else {
-      detail_.setText("OBS + DAS Audio     /     DISCORD + SHARE",
-                      juce::dontSendNotification);
-    }
-#endif
+  const auto ppm = juce::roundToInt(processor_.clockDriftPpm());
+  clockInfo_.setText(processor_.clockLocked()
+                         ? "CLOCK  " + juce::String(ppm >= 0 ? "+" : "") + juce::String(ppm) + " ppm"
+                         : juce::String("CLOCK  locking..."),
+                     juce::dontSendNotification);
+
+  const auto autoOn = processor_.parameters()
+                          .getRawParameterValue(DasSendProcessor::kAutoCompensationId)
+                          ->load() >= 0.5F;
+  const auto manualMs = static_cast<double>(
+      processor_.parameters().getRawParameterValue(DasSendProcessor::kManualOffsetId)->load());
+  if (obsConnected_) {
+    const auto autoMs = autoOn ? static_cast<double>(status.delayNs) / 1.0e6 : 0.0;
+    const auto totalMs = autoMs + manualMs;
+    syncTotal_.setText(formatMs(totalMs, false) + " ms", juce::dontSendNotification);
+    syncDirection_.setText(std::abs(totalMs) < 0.05 ? juce::String("NO SHIFT")
+                           : totalMs > 0.0          ? juce::String("EARLIER IN OBS")
+                                                    : juce::String("LATER IN OBS"),
+                           juce::dontSendNotification);
+    syncBreakdown_.setText((autoOn ? "AUTO " + formatMs(autoMs, false) : juce::String("AUTO off")) +
+                               "   MANUAL " + formatMs(manualMs, true),
+                           juce::dontSendNotification);
+  } else {
+    syncTotal_.setText("-- ms", juce::dontSendNotification);
+    syncDirection_.setText("OBS NOT CONNECTED", juce::dontSendNotification);
+    syncBreakdown_.setText(juce::String("MANUAL ") + formatMs(manualMs, true),
+                           juce::dontSendNotification);
   }
 
   repaint();

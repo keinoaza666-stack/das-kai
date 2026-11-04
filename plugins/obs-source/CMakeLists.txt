@@ -1,60 +1,35 @@
-add_library(das_obs_source MODULE Source/obs-plugin.cpp)
-target_include_directories(das_obs_source PRIVATE
-  "${CMAKE_CURRENT_SOURCE_DIR}/Source"
+add_library(kinu_stream_obs MODULE Source/obs-plugin.cpp)
+target_include_directories(kinu_stream_obs PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/Source")
+# Third-party headers: SYSTEM keeps their pedantic warnings out of our build.
+target_include_directories(kinu_stream_obs SYSTEM PRIVATE
   "${obs_headers_SOURCE_DIR}/libobs"
+  "${simde_SOURCE_DIR}"
 )
-if(APPLE)
-  target_include_directories(das_obs_source SYSTEM PRIVATE "${simde_SOURCE_DIR}")
-endif()
-target_link_libraries(das_obs_source PRIVATE das_transport)
-set_target_properties(das_obs_source PROPERTIES
+target_link_libraries(kinu_stream_obs PRIVATE das_sync das_transport)
+set_target_properties(kinu_stream_obs PROPERTIES
   PREFIX ""
-  OUTPUT_NAME "das-obs-source"
+  OUTPUT_NAME "kinu-stream-obs"
+  # No absolute rpath: @rpath/libobs resolves through OBS.app's own
+  # @executable_path/../Frameworks, exactly like upstream's installed plug-in.
+  SKIP_BUILD_RPATH ON
 )
 
-if(WIN32)
-  set(obs_import_library "${CMAKE_CURRENT_BINARY_DIR}/obs.lib")
-  add_custom_command(
-    OUTPUT "${obs_import_library}"
-    COMMAND "${CMAKE_AR}" /nologo /machine:x64
-            "/def:${CMAKE_CURRENT_SOURCE_DIR}/obs-import.def"
-            "/out:${obs_import_library}"
-    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/obs-import.def"
-    VERBATIM
-  )
-  add_custom_target(das_obs_import_library DEPENDS "${obs_import_library}")
-  configure_file(Source/version.rc.in "${CMAKE_CURRENT_BINARY_DIR}/version.rc" @ONLY)
-  target_sources(das_obs_source PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/version.rc")
-  add_dependencies(das_obs_source das_obs_import_library)
-  target_link_libraries(das_obs_source PRIVATE "${obs_import_library}")
-  install(TARGETS das_obs_source
-          RUNTIME DESTINATION OBS/bin/64bit
-          LIBRARY DESTINATION OBS/bin/64bit)
-elseif(APPLE)
-  set(DAS_OBS_FRAMEWORK_DIR "/Applications/OBS.app/Contents/Frameworks" CACHE PATH
-      "Directory containing libobs.framework")
-  find_library(DAS_OBS_LIBRARY NAMES libobs
-    PATHS "${DAS_OBS_FRAMEWORK_DIR}"
-    NO_DEFAULT_PATH
-    REQUIRED)
-  target_link_libraries(das_obs_source PRIVATE "${DAS_OBS_LIBRARY}")
-  target_sources(das_obs_source PRIVATE data/locale/ja-JP.ini data/locale/en-US.ini)
-  set_source_files_properties(data/locale/ja-JP.ini data/locale/en-US.ini PROPERTIES
-    MACOSX_PACKAGE_LOCATION "Resources/locale")
-  set_target_properties(das_obs_source PROPERTIES
-    BUNDLE TRUE
-    BUNDLE_EXTENSION plugin
-    MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist.in"
-    MACOSX_BUNDLE_GUI_IDENTIFIER "org.dawaudiostreamer.obs-source"
-    MACOSX_BUNDLE_BUNDLE_NAME "DAS Audio"
-    MACOSX_BUNDLE_BUNDLE_VERSION "${DAS_COMPONENT_VERSION}"
-    MACOSX_BUNDLE_SHORT_VERSION_STRING "${DAS_COMPONENT_VERSION}"
-    XCODE_ATTRIBUTE_GENERATE_INFOPLIST_FILE NO
-    XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER "org.dawaudiostreamer.obs-source"
-    XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED NO
-  )
-  install(TARGETS das_obs_source LIBRARY
-          DESTINATION "Library/Application Support/obs-studio/plugins")
-else()
-  message(FATAL_ERROR "DAS OBS source currently supports Windows and macOS")
-endif()
+set(DAS_OBS_FRAMEWORK_DIR "/Applications/OBS.app/Contents/Frameworks" CACHE PATH
+    "Directory containing libobs.framework")
+find_library(DAS_OBS_LIBRARY NAMES libobs
+  PATHS "${DAS_OBS_FRAMEWORK_DIR}"
+  NO_DEFAULT_PATH
+  REQUIRED)
+target_link_libraries(kinu_stream_obs PRIVATE "${DAS_OBS_LIBRARY}")
+target_sources(kinu_stream_obs PRIVATE data/locale/ja-JP.ini data/locale/en-US.ini)
+set_source_files_properties(data/locale/ja-JP.ini data/locale/en-US.ini PROPERTIES
+  MACOSX_PACKAGE_LOCATION "Resources/locale")
+set_target_properties(kinu_stream_obs PROPERTIES
+  BUNDLE TRUE
+  BUNDLE_EXTENSION plugin
+  MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist.in"
+  MACOSX_BUNDLE_GUI_IDENTIFIER "com.keinoaza.kinustream.obs"
+  MACOSX_BUNDLE_BUNDLE_NAME "Kinu Stream"
+  MACOSX_BUNDLE_BUNDLE_VERSION "${DAS_COMPONENT_VERSION}"
+  MACOSX_BUNDLE_SHORT_VERSION_STRING "${DAS_COMPONENT_VERSION}"
+)

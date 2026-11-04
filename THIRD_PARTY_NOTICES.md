@@ -1,5 +1,7 @@
 # 第三者ソフトウェアと権利表示
 
+> Kinu Stream(このフォーク)について: 上流 DawAudioStreamer の表示をそのまま引き継いでいます。Windows版とインストーラーはこのフォークに含まれないため、Inno Setup の節は削除しました。変更点は `MODIFICATIONS.md` を参照してください。
+
 配布ソースアーカイブには、バイナリのビルドに使用した次の固定revisionを収録します。
 
 ## JUCE
@@ -51,13 +53,6 @@ OBS音声ソースはこのrevisionの公開APIヘッダーでビルドし、実
 OBS Studioへ動的リンクします。OBS Studio本体は同梱しません。参照revisionの`COPYING`と
 対応ソースを配布物へ収録します。
 
-## Inno Setup
-
-- 上流：<https://jrsoftware.org/isinfo.php>
-- ライセンス：Inno Setup License
-
-Windowsインストーラーの生成にInno Setupを使用します。ライセンス全文は
-`LICENSES/Inno-Setup.txt`に収録します。
 
 ## 製品名・商標
 
@@ -113,12 +108,6 @@ SIMDe headers are used for Apple Silicon support in the macOS OBS plugin. The fu
 
 The OBS audio source is built against the public API headers of this revision and dynamically links at runtime to the OBS Studio the user has installed. OBS Studio itself is not bundled. The `COPYING` of the referenced revision and the corresponding source are included in the distribution.
 
-## Inno Setup
-
-- Upstream: <https://jrsoftware.org/isinfo.php>
-- License: Inno Setup License
-
-Inno Setup is used to generate the Windows installer. The full license text is included in `LICENSES/Inno-Setup.txt`.
 
 ## Product Names and Trademarks
 

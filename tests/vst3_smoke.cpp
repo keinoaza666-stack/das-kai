@@ -1,219 +1,187 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+// Modified for Kinu Stream (2026-11-04): loads the built VST3, drives it in
+// real time and receives its audio through StreamReceiver. See MODIFICATIONS.md.
+#include <das/sync/StreamReceiver.h>
 #include <das/transport/NamedSharedMemory.h>
 #include <das/transport/RingBuffer.h>
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_audio_utils/juce_audio_utils.h>
 
-#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
-#include <cwctype>
 #include <iostream>
 #include <memory>
 #include <numbers>
 #include <string>
 #include <thread>
+#include <time.h>
+#include <unistd.h>
 #include <vector>
 
-#if defined(_WIN32)
-#define WIN32_LEAN_AND_MEAN
-#define NOMINMAX
-#include <Windows.h>
-#include <Audioclient.h>
-#include <propkeydef.h>
-#include <Functiondiscoverykeys_devpkey.h>
-#include <Mmdeviceapi.h>
-#include <Propsys.h>
-#include <audiopolicy.h>
-#include <wrl/client.h>
-#elif defined(__APPLE__)
-#include <unistd.h>
-#endif
+namespace {
+std::int64_t nowNs() { return static_cast<std::int64_t>(clock_gettime_nsec_np(CLOCK_UPTIME_RAW)); }
 
-#if defined(_WIN32)
-std::wstring audioEndpointName(IMMDevice* device) {
-  using Microsoft::WRL::ComPtr;
-  ComPtr<IPropertyStore> properties;
-  if (device == nullptr || FAILED(device->OpenPropertyStore(STGM_READ, &properties))) return {};
-  PROPVARIANT value;
-  PropVariantInit(&value);
-  const auto result = properties->GetValue(PKEY_Device_FriendlyName, &value);
-  std::wstring name;
-  if (SUCCEEDED(result) && value.vt == VT_LPWSTR && value.pwszVal != nullptr)
-    name = value.pwszVal;
-  PropVariantClear(&value);
-  return name;
+// Hosted VST3 parameters are plain AudioProcessorParameters (normalised 0..1).
+juce::AudioProcessorParameter* findParameter(juce::AudioPluginInstance& plugin, const juce::String& name) {
+  for (auto* parameter : plugin.getParameters())
+    if (parameter->getName(64) == name) return parameter;
+  std::cerr << "parameters:";
+  for (auto* parameter : plugin.getParameters()) std::cerr << " [" << parameter->getName(64) << "]";
+  std::cerr << '\n';
+  return nullptr;
 }
 
-bool isSilentVirtualEndpoint(std::wstring name) {
-  std::transform(name.begin(), name.end(), name.begin(),
-                 [](const wchar_t value) { return static_cast<wchar_t>(std::towlower(value)); });
-  return name.find(L"vb-audio virtual cable") != std::wstring::npos;
+int fail(const int code, const std::string& message) {
+  std::cerr << message << '\n';
+  return code;
 }
-
-bool discordBridgeSessionIsSafe() {
-  using Microsoft::WRL::ComPtr;
-  ComPtr<IMMDeviceEnumerator> deviceEnumerator;
-  if (FAILED(CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL,
-                              IID_PPV_ARGS(&deviceEnumerator)))) return false;
-  ComPtr<IMMDeviceCollection> devices;
-  if (FAILED(deviceEnumerator->EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE, &devices)))
-    return false;
-  UINT deviceCount {};
-  if (FAILED(devices->GetCount(&deviceCount))) return false;
-  bool virtualEndpointAvailable {};
-  for (UINT deviceIndex = 0; deviceIndex < deviceCount; ++deviceIndex) {
-    ComPtr<IMMDevice> device;
-    if (FAILED(devices->Item(deviceIndex, &device))) continue;
-    const auto endpointIsVirtual = isSilentVirtualEndpoint(audioEndpointName(device.Get()));
-    virtualEndpointAvailable = virtualEndpointAvailable || endpointIsVirtual;
-    ComPtr<IAudioSessionManager2> manager;
-    if (FAILED(device->Activate(__uuidof(IAudioSessionManager2), CLSCTX_ALL, nullptr,
-                                reinterpret_cast<void**>(manager.GetAddressOf())))) continue;
-    ComPtr<IAudioSessionEnumerator> sessions;
-    if (FAILED(manager->GetSessionEnumerator(&sessions))) continue;
-    int count {};
-    if (FAILED(sessions->GetCount(&count))) continue;
-    for (int index = 0; index < count; ++index) {
-      ComPtr<IAudioSessionControl> control;
-      ComPtr<IAudioSessionControl2> control2;
-      if (FAILED(sessions->GetSession(index, &control)) || FAILED(control.As(&control2))) continue;
-      DWORD processId {};
-      if (FAILED(control2->GetProcessId(&processId)) || processId != GetCurrentProcessId()) continue;
-      LPWSTR displayName {};
-      const auto gotName = SUCCEEDED(control->GetDisplayName(&displayName));
-      const auto matches = gotName && displayName != nullptr &&
-                           std::wstring_view(displayName) == L"DAS Discord Bridge";
-      if (displayName != nullptr) CoTaskMemFree(displayName);
-      if (!matches) continue;
-      const GUID sessionId {0x90a5616e, 0x70b8, 0x46d1,
-                            {0xb2, 0x45, 0x3d, 0x39, 0x83, 0x48, 0x2e, 0xa7}};
-      ComPtr<ISimpleAudioVolume> volume;
-      if (FAILED(manager->GetSimpleAudioVolume(&sessionId, 0, &volume))) return false;
-      BOOL muted {};
-      if (FAILED(volume->GetMute(&muted))) return false;
-      return endpointIsVirtual && muted == FALSE;
-    }
-  }
-  // 対応する仮想出力がない場合は、セッションを一切作らないのが正しい動作。
-  return !virtualEndpointAvailable;
-}
-#endif
+} // namespace
 
 int main(const int argc, char** argv) {
   juce::ScopedJuceInitialiser_GUI juce;
-  if (argc != 2) {
-    std::cerr << "VST3バンドルのパスが必要です\n";
-    return 1;
-  }
+  if (argc != 2) return fail(1, "usage: kinu_stream_vst3_smoke <Kinu Stream.vst3>");
 
-#if defined(_WIN32)
-  const auto testSuffix = std::wstring(L"vst3-smoke-") + std::to_wstring(GetCurrentProcessId());
-  SetEnvironmentVariableW(L"DAS_TEST_NAMESPACE", testSuffix.c_str());
-  const auto obsMappingName = std::wstring(das::transport::kObsAudioMappingName) + L'.' + testSuffix;
-#elif defined(__APPLE__)
-  const auto testSuffix = std::string("vst3-smoke-") +
-                          std::to_string(static_cast<unsigned long long>(getpid()));
-  setenv("DAS_TEST_NAMESPACE", testSuffix.c_str(), 1);
-  const auto obsMappingName = std::wstring(das::transport::kObsAudioMappingName) + L'.' +
-                              std::wstring(testSuffix.begin(), testSuffix.end());
-#else
-  const auto obsMappingName = std::wstring(das::transport::kObsAudioMappingName);
-#endif
+  const auto suffix = std::string("vst3-smoke-") + std::to_string(static_cast<unsigned long long>(getpid()));
+  setenv("KINU_STREAM_TEST_NAMESPACE", suffix.c_str(), 1);
+  const auto mapping = std::wstring(das::transport::kObsAudioMappingName) + L'.' +
+                       std::wstring(suffix.begin(), suffix.end());
   const auto bytes = das::transport::requiredBytes(das::transport::kAudioCapacityFrames,
                                                     das::transport::kAudioChannels);
-  auto memory = das::transport::NamedSharedMemory::create(obsMappingName, bytes);
-  if (!memory.isOpen()) return 2;
+  auto memory = das::transport::NamedSharedMemory::create(mapping, bytes);
+  if (!memory.isOpen()) return fail(2, "could not create the test mapping");
   if (!memory.alreadyExisted())
-    das::transport::RingBuffer::initialize(memory.storage(),
-                                           das::transport::kAudioCapacityFrames,
+    das::transport::RingBuffer::initialize(memory.storage(), das::transport::kAudioCapacityFrames,
                                            das::transport::kAudioChannels,
                                            das::transport::kAudioSampleRate);
   das::transport::RingBuffer ring(memory.storage());
-  if (!ring.isCompatible()) return 3;
-  ring.discardAll();
-  ring.notifyConsumer();
+  if (!ring.isCompatible()) return fail(3, "test ring incompatible");
+
   juce::VST3PluginFormat format;
   juce::OwnedArray<juce::PluginDescription> descriptions;
-  const auto bundle = juce::File(juce::String::fromUTF8(argv[1])).getFullPathName();
-  format.findAllTypesForFile(descriptions, bundle);
-  if (descriptions.size() != 1) {
-    std::cerr << "DAS SendをVST3として検出できません: " << descriptions.size() << '\n';
-    return 4;
-  }
+  format.findAllTypesForFile(descriptions, juce::File(juce::String::fromUTF8(argv[1])).getFullPathName());
+  if (descriptions.size() != 1) return fail(4, "Kinu Stream VST3 not found");
+  if (descriptions[0]->name != "Kinu Stream" || descriptions[0]->manufacturerName != "Keinoaza")
+    return fail(4, "unexpected plug-in identity: " + descriptions[0]->name.toStdString() + " / " +
+                       descriptions[0]->manufacturerName.toStdString());
 
+  constexpr double rate = 44100.0;
+  constexpr int blockSize = 512;
   juce::String error;
-  auto plugin = format.createInstanceFromDescription(*descriptions[0], 44100.0, 512, error);
-  if (!plugin) {
-    std::cerr << "VST3を生成できません: " << error << '\n';
-    return 5;
-  }
-  plugin->setPlayConfigDetails(2, 2, 44100.0, 512);
-  plugin->prepareToPlay(44100.0, 512);
-#if defined(_WIN32)
-  std::this_thread::sleep_for(std::chrono::milliseconds(200));
-  if (!discordBridgeSessionIsSafe()) {
-    std::cerr << "Discord音声セッションを確認できません\n";
-    return 6;
-  }
-#endif
+  auto plugin = format.createInstanceFromDescription(*descriptions[0], rate, blockSize, error);
+  if (!plugin) return fail(5, "cannot instantiate: " + error.toStdString());
+  plugin->setPlayConfigDetails(2, 2, rate, blockSize);
+  plugin->prepareToPlay(rate, blockSize);
 
-  juce::AudioBuffer<float> audio(2, 512);
+  juce::AudioBuffer<float> audio(2, blockSize);
   juce::MidiBuffer midi;
-  audio.clear();
-  audio.setSample(0, 0, 0.25F);
-  audio.setSample(1, 0, -0.25F);
-  plugin->processBlockBypassed(audio, midi);
-  if (audio.getSample(0, 0) != 0.25F || audio.getSample(1, 0) != -0.25F) {
-    std::cerr << "バイパス中にDAWへ戻す音声が変化しました\n";
-    return 13;
-  }
-  if (ring.availableToRead() != 0) {
-    std::cerr << "バイパス中に配信用音声が送信されました\n";
-    return 14;
-  }
 
-  auto duplicate = format.createInstanceFromDescription(*descriptions[0], 44100.0, 512, error);
-  if (!duplicate) {
-    std::cerr << "2個目のDAS Sendを生成できません: " << error << '\n';
-    return 7;
+  // Bypass passes audio through untouched and keeps the stream clock running
+  // with silence.
+  // The 44.1 -> 48 kHz converter holds back its first ~20 ms, so feed several
+  // blocks before expecting output.
+  const auto before = ring.writePosition();
+  for (int i = 0; i < 10; ++i) {
+    audio.clear();
+    audio.setSample(0, 0, 0.25F);
+    audio.setSample(1, 0, -0.25F);
+    plugin->processBlockBypassed(audio, midi);
+    if (audio.getSample(0, 0) != 0.25F || audio.getSample(1, 0) != -0.25F)
+      return fail(13, "bypass changed the DAW audio");
   }
-  duplicate->setPlayConfigDetails(2, 2, 44100.0, 512);
-  duplicate->prepareToPlay(44100.0, 512);
+  const auto afterBypass = ring.writePosition();
+  if (afterBypass <= before) return fail(14, "bypass must keep sending (silence)");
+  std::vector<float> check(static_cast<std::size_t>(afterBypass - before) * 2);
+  if (!ring.readAt(before, static_cast<std::uint32_t>(afterBypass - before), check))
+    return fail(14, "cannot read bypass frames");
+  for (const auto value : check)
+    if (value != 0.0F) return fail(14, "bypass sent non-silent audio");
+
+  // A second instance must not send.
+  auto duplicate = format.createInstanceFromDescription(*descriptions[0], rate, blockSize, error);
+  if (!duplicate) return fail(7, "cannot instantiate a second instance: " + error.toStdString());
+  duplicate->setPlayConfigDetails(2, 2, rate, blockSize);
+  duplicate->prepareToPlay(rate, blockSize);
   audio.clear();
   duplicate->processBlock(audio, midi);
-  if (ring.availableToRead() != 0) {
-    std::cerr << "2個目のDAS Sendが重複送信しました\n";
-    return 8;
-  }
+  if (ring.writePosition() != afterBypass) return fail(8, "a second instance sent audio");
   duplicate->releaseResources();
   duplicate.reset();
 
+  // Manual offset parameter reaches the transport controls.
+  auto* manual = findParameter(*plugin, "Manual Offset");
+  auto* automatic = findParameter(*plugin, "Auto Compensation");
+  if (manual == nullptr || automatic == nullptr) return fail(15, "sync parameters missing");
+  // Range -500..800 ms (PluginProcessor.h); 45 ms normalised.
+  manual->setValueNotifyingHost((45.0F + 500.0F) / 1300.0F);
+
+  // Drive the plug-in at real-time pace while a receiver reads the ring.
+  das::sync::StreamReceiver receiver(ring);
+  das::sync::StreamReceiver::Block block;
+  const auto blockNs = static_cast<std::int64_t>(blockSize / rate * 1.0e9);
+  auto next = nowNs();
   double phase {};
-  for (int block = 0; block < 100; ++block) {
-    for (int sample = 0; sample < audio.getNumSamples(); ++sample) {
+  int emitted {};
+  double peak {};
+  bool channelsMatch = true;
+  std::int64_t worstTimestampError {};
+  const auto stopAt = next + 3'000'000'000;
+  while (next < stopAt) {
+    for (int sample = 0; sample < blockSize; ++sample) {
       const auto value = static_cast<float>(0.25 * std::sin(phase));
-      phase += 2.0 * std::numbers::pi * 440.0 / 44100.0;
+      phase += 2.0 * std::numbers::pi * 440.0 / rate;
       audio.setSample(0, sample, value);
       audio.setSample(1, sample, value);
     }
     plugin->processBlock(audio, midi);
+    next += blockNs;
+    while (nowNs() < next) {
+      while (receiver.poll(nowNs(), block)) {
+        ++emitted;
+        for (std::size_t i = 0; i < block.frames; ++i) {
+          peak = std::max(peak, static_cast<double>(std::abs(block.samples[i * 2])));
+          channelsMatch = channelsMatch && block.samples[i * 2] == block.samples[i * 2 + 1];
+        }
+        // Timestamp = due time of the packet's first block - delay - 45 ms. The
+        // newest block is due at most a few ms ago; a batch packet starts
+        // (frames - one block) earlier.
+        const auto batchLeadNs = static_cast<std::int64_t>(block.frames - das::sync::StreamReceiver::kBlockFrames) *
+                                 1'000'000'000LL / 48000;
+        const auto expected = nowNs() - receiver.delayNs() - 45'000'000 - batchLeadNs;
+        worstTimestampError = std::max<std::int64_t>(
+            worstTimestampError, std::llabs(static_cast<std::int64_t>(block.timestampNs) - expected));
+      }
+      std::this_thread::sleep_for(std::chrono::microseconds(500));
+    }
   }
-  plugin->releaseResources();
 
-  const auto available = ring.availableToRead();
-  if (available < 54500 || available > 56500) {
-    std::cerr << "44.1→48 kHz変換後のフレーム数が不正です: " << available << '\n';
-    return 9;
-  }
-  std::vector<float> received(static_cast<std::size_t>(available) * 2);
-  if (ring.read(received, available) != available) return 10;
-  bool nonZero {};
-  for (std::size_t frame = 0; frame < available; ++frame) {
-    nonZero = nonZero || std::abs(received[frame * 2]) > 0.001F;
-    if (received[frame * 2] != received[frame * 2 + 1]) return 11;
-  }
-  if (!nonZero) return 12;
+  das::transport::ClockSnapshot clock;
+  if (!ring.readClock(clock)) return fail(16, "no clock model published");
+  const auto control = ring.producerControl();
+  const auto status = ring.consumerStatus();
+  std::cout << "clock period " << clock.periodNs << " ns, epoch " << clock.epoch
+            << ", lead " << control.leadNs / 1.0e6 << " ms, receiver delay "
+            << receiver.delayNs() / 1.0e6 << " ms, emitted " << emitted
+            << ", peak " << peak << ", worst ts error " << worstTimestampError / 1.0e6 << " ms\n";
+  if (std::abs(clock.periodNs - 1.0e9 / 48000.0) > 1.0e9 / 48000.0 * 0.002)
+    return fail(17, "clock period far from 48 kHz");
+  // The value travels as a normalised float, so allow 0.1 ms of rounding.
+  if (!control.autoCompensation || std::llabs(control.manualOffsetNs - 45'000'000) > 100'000 ||
+      control.leadNs <= 0)
+    return fail(18, "producer controls not published: auto " + std::to_string(control.autoCompensation) +
+                        " manual " + std::to_string(control.manualOffsetNs) + " lead " +
+                        std::to_string(control.leadNs));
+  if (status.delayNs != receiver.delayNs()) return fail(19, "consumer status not published");
+  if (emitted < 250) return fail(9, "receiver emitted too few blocks: " + std::to_string(emitted));
+  if (peak < 0.2 || peak > 0.3) return fail(12, "received audio level is wrong");
+  if (!channelsMatch) return fail(11, "left and right differ for a mono signal");
+  if (worstTimestampError > 15'000'000) return fail(20, "timestamps do not follow DAW time");
+
+  // Auto compensation off is published too.
+  automatic->setValueNotifyingHost(0.0F);
+  plugin->processBlock(audio, midi);
+  if (ring.producerControl().autoCompensation) return fail(21, "auto compensation flag not published");
+
+  plugin->releaseResources();
   return 0;
 }

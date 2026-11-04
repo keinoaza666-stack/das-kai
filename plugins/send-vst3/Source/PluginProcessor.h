@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+// Modified for Kinu Stream (2026-11-04): timestamped transport with a clock
+// model, latency compensation controls, macOS only. See MODIFICATIONS.md.
 #pragma once
 
-#include "DiscordBridge.h"
-
-#include <das/audio/SampleRateConverter.h>
+#include <das/audio/StreamSender.h>
 #include <das/transport/NamedSharedMemory.h>
 #include <das/transport/RingBuffer.h>
 #include <juce_audio_processors/juce_audio_processors.h>
@@ -16,6 +16,11 @@
 
 class DasSendProcessor final : public juce::AudioProcessor {
 public:
+  static constexpr const char* kAutoCompensationId = "autoCompensation";
+  static constexpr const char* kManualOffsetId = "manualOffsetMs";
+  static constexpr float kManualOffsetMinMs = -500.0F;
+  static constexpr float kManualOffsetMaxMs = 800.0F;
+
   DasSendProcessor();
   ~DasSendProcessor() override;
 
@@ -36,40 +41,49 @@ public:
   void setCurrentProgram(int) override {}
   const juce::String getProgramName(int) override { return {}; }
   void changeProgramName(int, const juce::String&) override {}
-  void getStateInformation(juce::MemoryBlock&) override {}
-  void setStateInformation(const void*, int) override {}
+  void getStateInformation(juce::MemoryBlock&) override;
+  void setStateInformation(const void*, int) override;
+
+  [[nodiscard]] juce::AudioProcessorValueTreeState& parameters() noexcept { return parameters_; }
   [[nodiscard]] double currentSampleRate() const noexcept { return sampleRate_.load(); }
   [[nodiscard]] bool sampleRateSupported() const noexcept { return sampleRateSupported_.load(); }
   [[nodiscard]] bool transportReady() const noexcept { return transportReady_.load(); }
   [[nodiscard]] bool isBypassed() const noexcept { return bypassed_.load(); }
   [[nodiscard]] bool isPrimarySender() const noexcept { return primarySender_; }
+  [[nodiscard]] bool isRenderingOffline() const noexcept { return offline_.load(); }
   [[nodiscard]] std::uint64_t obsConsumerHeartbeat() const noexcept {
-    return obsConsumerHeartbeat_.load(std::memory_order_relaxed);
+    return obsHeartbeat_.load(std::memory_order_relaxed);
   }
-  [[nodiscard]] std::uint64_t engineConsumerHeartbeat() const noexcept {
-    return engineConsumerHeartbeat_.load(std::memory_order_relaxed);
-  }
-  [[nodiscard]] DiscordBridge::State discordBridgeState() const noexcept;
-  [[nodiscard]] std::uint64_t discordRenderedFrames() const noexcept;
+  [[nodiscard]] das::transport::ConsumerStatus obsStatus() const noexcept;
+  [[nodiscard]] double clockDriftPpm() const noexcept { return driftPpm_.load(); }
+  [[nodiscard]] bool clockLocked() const noexcept { return clockLocked_.load(); }
 
 private:
-  das::transport::NamedSharedMemory memory_;
-  std::unique_ptr<das::transport::RingBuffer> ring_;
+  static juce::AudioProcessorValueTreeState::ParameterLayout createLayout();
+  void sendBlock(const juce::AudioBuffer<float>* audio, int numSamples) noexcept;
+
+  juce::AudioProcessorValueTreeState parameters_;
+  std::atomic<float>* autoCompensation_ {};
+  std::atomic<float>* manualOffsetMs_ {};
+
   das::transport::NamedSharedMemory obsMemory_;
   std::unique_ptr<das::transport::RingBuffer> obsRing_;
-  das::transport::NamedSharedMemory discordMemory_;
-  std::unique_ptr<das::transport::RingBuffer> discordRing_;
-  std::unique_ptr<DiscordBridge> discordBridge_;
-  das::audio::SampleRateConverter sampleRateConverter_;
-  std::vector<float> interleaved_;
-  std::array<std::vector<float>, 2> inputScratch_;
+  das::audio::StreamSender sender_;
+
   std::atomic<double> sampleRate_ {48000.0};
   std::atomic<bool> sampleRateSupported_ {true};
   std::atomic<bool> transportReady_ {};
   std::atomic<bool> bypassed_ {};
-  std::atomic<std::uint64_t> obsConsumerHeartbeat_ {};
-  std::atomic<std::uint64_t> engineConsumerHeartbeat_ {};
-  void writeTransport(std::uint32_t frames) noexcept;
+  std::atomic<bool> offline_ {};
+  std::atomic<double> driftPpm_ {};
+  std::atomic<bool> clockLocked_ {};
+  // Copied from shared memory on the audio thread so the editor never touches
+  // the mapping, which releaseResources() may unmap on another thread.
+  std::atomic<std::uint64_t> obsHeartbeat_ {};
+  std::atomic<std::int64_t> obsDelayNs_ {};
+  std::atomic<std::int64_t> obsAppliedOffsetNs_ {};
+  std::atomic<std::uint64_t> obsResyncs_ {};
+  std::atomic<std::uint64_t> obsUnderruns_ {};
   std::intptr_t senderGuard_ {-1};
   bool primarySender_ {true};
 };
