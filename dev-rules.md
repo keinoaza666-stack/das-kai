@@ -34,7 +34,13 @@
 - 必ず通す入口: `StreamReceiver::poll` の末尾(時刻の切れ目とまとめ送りの処理)
 - 破ると: 70ミリ秒未満の変化はOBSに無視される(`TS_SMOOTHING_THRESHOLD`)。まとめ送りがないと、OBSが待ち時間を足さずに先頭を削り、補正が最大21ミリ秒足りなくなる(実エンジンで再現済み)。`sync` テストの「offset changes」と、`kinu_stream_obs_harness` の手動補正の行で分かる
 
-## 6. 編集画面は共有メモリに触らない
+## 6. 時計情報が読めないことと、送信側が止まったことを混ぜない
+
+- 守ること: `readClock` が失敗した時は直前に読めた時計情報を使う。送信側が止まったかどうかは、書き込み位置が `kProducerTimeoutNs` の間動いていないことだけで判断する
+- 必ず通す入口: `StreamReceiver::poll` の先頭(`lastClock_`)
+- 破ると: 読み取りが書き込みと競合するたびに受信を最初からやり直し、約 86 ms 途切れる。`sync` テストの「clock read failure」で落ちる
+
+## 7. 編集画面は共有メモリに触らない
 
 - 守ること: 画面に出すOBSの状態は、音声処理の中で原子変数に写した値だけを読む
 - 必ず通す入口: `DasSendProcessor::sendBlock` の末尾と `obsStatus()`

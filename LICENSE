@@ -14,10 +14,14 @@ Copyright (c) 2026 Keinoaza(Kinu Stream での変更・追加部分)
 - `libs/audio-core`（追加した`StreamSender`を含む）、`tests/sync_tests.cpp`、
   `tests/obs_harness.cpp`：GNU General Public License version 3またはそれ以降
   （GPL-3.0-or-later）。r8brain部分は上流のMIT Licenseにも従います。
-- `libs/sync`（Kinu Streamで追加）：MIT License。
+- `libs/sync`（Kinu Streamで追加）：MIT License。`libs/sync/LICENSE`を参照してください。
 - `plugins/obs-source`：GNU General Public License version 3またはそれ以降
   （GPL-3.0-or-later）。
 - `libs/transport`：MIT License。`libs/transport/LICENSE`を参照してください。
+
+このフォークは自分用で、配布物(インストーラーやZIP)を作りません。バイナリを人に渡す場合は、
+AGPL-3.0/GPL-3.0に従って改変後のソースを提供し、第三者のライセンス文(JUCE、VST3 SDK、
+r8brain、OBS、SIMDe)を同梱してください。
 
 ライセンス全文：
 

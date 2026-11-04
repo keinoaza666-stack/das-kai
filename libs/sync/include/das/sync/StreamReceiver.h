@@ -41,6 +41,10 @@ public:
   // converter fills up; it is skipped without growing the delay.
   static constexpr std::int64_t kStartGraceNs = 300'000'000;
   static constexpr std::int64_t kMaximumOffsetNs = 1'200'000'000;
+  // Ceiling for the total shift (auto + manual) placed earlier in OBS. OBS
+  // buffers at most 960 ms (45 ticks of 1024 frames at 48 kHz); keep room
+  // for the receiver's own block and other sources.
+  static constexpr std::int64_t kMaximumAppliedOffsetNs = 850'000'000;
   // Proportional correction of the read position, per block, and its limit.
   static constexpr double kPositionGain = 0.005;
   static constexpr double kMaximumCorrection = 300.0e-6;
@@ -98,6 +102,8 @@ private:
   double position_ {};
   std::int64_t delayNs_ {};
   std::int64_t graceUntilNs_ {};
+  transport::ClockSnapshot lastClock_ {};
+  bool haveLastClock_ {};
   bool autoCompensation_ {true};
   std::int64_t manualSeenNs_ {};
   std::int64_t manualAppliedNs_ {};

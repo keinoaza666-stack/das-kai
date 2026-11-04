@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+// Modified for Kinu Stream (2026-11-04): always-write ring, readAt, clock and control tests.
 #include <das/transport/RingBuffer.h>
 
 #include <array>

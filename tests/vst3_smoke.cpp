@@ -112,8 +112,8 @@ int main(const int argc, char** argv) {
   auto* manual = findParameter(*plugin, "Manual Offset");
   auto* automatic = findParameter(*plugin, "Auto Compensation");
   if (manual == nullptr || automatic == nullptr) return fail(15, "sync parameters missing");
-  // Range -500..800 ms (PluginProcessor.h); 45 ms normalised.
-  manual->setValueNotifyingHost((45.0F + 500.0F) / 1300.0F);
+  // Range -500..500 ms (PluginProcessor.h); 45 ms normalised.
+  manual->setValueNotifyingHost((45.0F + 500.0F) / 1000.0F);
 
   // Drive the plug-in at real-time pace while a receiver reads the ring.
   das::sync::StreamReceiver receiver(ring);

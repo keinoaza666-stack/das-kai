@@ -31,3 +31,14 @@ was modified and when.
 - Tests: adapted transport tests to the new ring; added the sync simulation,
   a real-time VST3 smoke test through `StreamReceiver`, and a headless libobs
   harness.
+
+## 2026-11-04 (Keinoaza) — fixes after review
+
+- OBS side: a clock read that loses the race with the writer reuses the last
+  good snapshot instead of restarting the stream (was an ~86 ms dropout).
+- Total shift placed earlier in OBS is capped at 850 ms; the manual offset
+  range is -500..+500 ms (OBS buffers at most 960 ms).
+- Plug-in window shows the shift OBS actually applies and "APPLYING..." until
+  a new setting takes effect; "1 per user" instead of "1 per Mac".
+- Per-file modification notices, `libs/sync/LICENSE`, distribution notes in
+  `LICENSE`; the plug-in no longer names the upstream URL as its website.

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+// Modified for Kinu Stream (2026-11-04): always-write ring, own test name.
 #include <das/transport/NamedSharedMemory.h>
 #include <das/transport/RingBuffer.h>
 

@@ -18,8 +18,6 @@ endif()
 set(DAS_COMPONENT_VERSION "${PROJECT_VERSION}" CACHE STRING
     "Numeric x.y.z version embedded in built components")
 set(DAS_PUBLISHER "Keinoaza" CACHE STRING "Vendor shown in hosts")
-set(DAS_REPOSITORY_URL "https://github.com/yoruhinot/DawAudioStreamer" CACHE STRING
-    "Upstream source repository")
 
 option(DAS_BUILD_TESTS "Build unit, simulation and smoke tests" ON)
 option(DAS_BUILD_OBS_PLUGIN "Build the OBS audio source plug-in" ON)

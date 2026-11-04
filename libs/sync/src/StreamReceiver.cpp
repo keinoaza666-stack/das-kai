@@ -25,7 +25,7 @@ StreamReceiver::StreamReceiver(transport::RingBuffer& ring)
       scratch_(static_cast<std::size_t>(kBlockFrames * 2 + SincInterpolator::kTaps * 2) * 2) {}
 
 std::int64_t StreamReceiver::appliedOffsetNs() const noexcept {
-  return (autoCompensation_ ? delayNs_ : 0) + manualAppliedNs_;
+  return std::min((autoCompensation_ ? delayNs_ : 0) + manualAppliedNs_, kMaximumAppliedOffsetNs);
 }
 
 std::int64_t StreamReceiver::nextWakeNs(const std::int64_t nowNs) const noexcept {
@@ -94,6 +94,7 @@ bool StreamReceiver::poll(const std::int64_t nowNs, Block& block) {
   ring_.notifyConsumer();
   if (!ring_.isCompatible()) {
     state_ = State::idle;
+    haveLastClock_ = false;
     return false;
   }
 
@@ -105,7 +106,17 @@ bool StreamReceiver::poll(const std::int64_t nowNs, Block& block) {
   const auto producerAlive =
       lastWriteChangeNs_ != 0 && nowNs - lastWriteChangeNs_ < kProducerTimeoutNs;
   transport::ClockSnapshot clock;
-  const auto hasClock = ring_.readClock(clock);
+  auto hasClock = ring_.readClock(clock);
+  if (hasClock) {
+    lastClock_ = clock;
+    haveLastClock_ = true;
+  } else if (haveLastClock_ && producerAlive) {
+    // The read lost the race with a writer mid-update. The model barely moves
+    // between updates, so the last good snapshot is safe for this poll; a
+    // missing producer is detected by producerAlive, not by this.
+    clock = lastClock_;
+    hasClock = true;
+  }
   const auto control = ring_.producerControl();
 
   const auto manual = std::clamp(control.manualOffsetNs, -kMaximumOffsetNs, kMaximumOffsetNs);

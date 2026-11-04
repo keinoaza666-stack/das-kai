@@ -24,6 +24,8 @@ cd build/release && ctest
 | クロックずれの吸収 | `ctest -R sync`(44.1k +250ppm 10分、48k -300ppm 5分) | 時刻の切れ目 0、仕切り直し 0、時刻のぶれ 0.5ms 未満、最初と最後の差 0.2ms 未満、1kHz の段差 1e-4 未満 |
 | 手動補正・自動補正の切り替え | `ctest -R sync`(offset changes) | +45ms で 45ms 前に置く、AUTO オフで待ち時間ぶん後ろへ、切れ目は 80ms 以上、切れ目の直後はまとめ送り |
 | DAW の停止と再開 | `ctest -R sync`(engine pause) | 再開後に合い方が戻る、待ち時間が初期値に戻る |
+| 時計情報の読み取り失敗 | `ctest -R sync`(clock read failure) | 1 回失敗しても切れ目 0・仕切り直し 0 |
+| 合計補正の上限 | `ctest -R sync`(offset ceiling) | 手動 1000ms を入れても合計 850ms で止まる |
 | 実際の VST3 | `ctest -R vst3_smoke` | 名前・ベンダー、バイパスで無音を送る、2個目は送らない、補正値の公開、受信側で音と時刻が届く |
 | VST3 規格 | `pluginval --strictness-level 5 --validate "<Kinu Stream.vst3>"` | SUCCESS |
 | AU 規格 | `auval -v aufx Knst Kein` | AU VALIDATION SUCCEEDED |
@@ -39,8 +41,9 @@ cd build/release && ctest
 - **OBS は 1024 サンプル未満しかたまっていない音源を、待ち時間を足す判断から外す**: `audio_buffer_insufficient`(obs-audio.c)。10ms ずつ送ると、切れ目の直後に先頭が削られ補正が最大 21.3ms 足りなくなる。実エンジンで 1 回目は偶然通り、2 回目で -23.5ms(期待 -44.85ms)になって発覚。切れ目の直後を 1440 サンプルまとめ送りにして解消
 - **44.1kHz → 48kHz 変換は約 19ms ためる**: 最初の 1 ブロックでは何も出てこない。テストは数ブロック流してから判定する。この遅れは時計のフレーム位置には入れず `leadNs` で伝える(dev-rules 4)
 - **起動直後にホストがまとめて処理すると、時計の傾きが引っ張られる**: 固まる前(4秒)は 50ms 以上外れた点で推定をやり直す。2次ループ(DLL)は揺れを拾って ±40ppm ぶれたので、指数重み付き最小二乗に替えた
-- **ホストで読み込んだ VST3 のパラメータは 0〜1 の値だけ**: テストから値を入れる時は範囲(-500〜800ms)で正規化する。45ms は丸めで ±0.1ms ずれる
+- **ホストで読み込んだ VST3 のパラメータは 0〜1 の値だけ**: テストから値を入れる時は範囲(-500〜500ms)で正規化する。45ms は丸めで ±0.1ms ずれる
 - **ビルドした AU の署名は古くなっていることがある**(リソース追加後): インストール時に署名し直す(`scripts/install.sh`)
+- **時計情報の読み取りは書き込みと競合して失敗することがある**(seqlock の再試行 16 回を使い切る。検品で 1 読みあたり約 5e-7〜3e-6 [推定])。失敗を「送信側が消えた」と扱うと約 86ms 途切れていた。直前の時計情報を使い、送信側の生存は書き込み位置の変化だけで判断する
 - **OBS 用プラグインに絶対パスの rpath を入れない**: `SKIP_BUILD_RPATH ON`。`@rpath/libobs` は OBS.app 側の `@executable_path/../Frameworks` で解決される(上流の配布物と同じ)
 
 ## 外部依存
@@ -71,3 +74,13 @@ cd build/release && ctest
 - 普段使いの OBS(32.2.2)の起動ログで `kinu-stream-obs` の読み込みを確認
 - 配置済みの SHA-256(先頭16桁): VST3 `cd850c7d08973e0d` / AU `a1ccf45c071d84df` / OBS `2b0534db1849efbd`
 - 未検証: Cubase と OBS での実際の配信・録画(音と映像の揃い方を含む)、ASIO-Guard 有効時の自動補正の量
+
+### 記録 2026-11-04(0.1.0、検品後の修正)
+
+- 検品(別文脈の verifier)で見つかった点を修正: 時計情報の読み取り失敗で約 86ms 途切れる、合計補正が OBS の上限 960ms に近づく、README の途切れの説明、改変注記と libs/sync のライセンス、画面が未反映の値を出す、「1 per Mac」
+- 検品で合格していた点: 識別子が上流とすべて別、音声処理中に確保・ロック・時計以外のシステム呼び出しなし(8万回の呼び出しで計測)、seqlock(約 29 億回の読み取りで破損 0)、画面が共有メモリに触らない、受信側の切れ目とまとめ送り(ランダム試験 40 回で違反 0)
+- `ctest` 5/5(sync に clock read failure と offset ceiling を追加。修正前に clock read failure が落ちることを確認済み)
+- pluginval strictness 5: SUCCESS。auval(配置後): SUCCEEDED。配布物の検査: VST3/AU 全項目 ok、OBS 用 arm64・minos 13.0・LC_RPATH なし
+- OBS 実エンジン 2分 +1000ppm(`docs/obs-harness-120s-1000ppm-offset90s.txt` を上書き): 時刻の抜け 0、ずれ 0.142ms(ぶれ最大 0.035ms)、最初 0.157 / 最後 0.135ms、手動 +45ms は -44.861ms(期待 -44.858ms)
+- 配置済みの SHA-256(先頭16桁): VST3 `1bb32010e8df1aba` / AU `c104a966e81e3a92` / OBS `bc607251af6047ba`
+- 未検証は前回と同じ(Cubase と OBS での実配信・録画、ASIO-Guard)

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+// Modified for Kinu Stream (2026-11-04): added latencySeconds(). See MODIFICATIONS.md.
 #pragma once
 
 #include <cstddef>

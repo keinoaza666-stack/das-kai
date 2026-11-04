@@ -2,7 +2,6 @@ juce_add_plugin(KinuStream
   PRODUCT_NAME "Kinu Stream"
   VERSION "${DAS_COMPONENT_VERSION}"
   COMPANY_NAME "${DAS_PUBLISHER}"
-  COMPANY_WEBSITE "${DAS_REPOSITORY_URL}"
   BUNDLE_ID "com.keinoaza.kinustream"
   PLUGIN_MANUFACTURER_CODE Kein
   PLUGIN_CODE Knst

@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MIT
+// Modified for Kinu Stream (2026-11-04): protocol v2 (own identifiers, always-write ring,
+// clock model, sync controls, consumer status). See MODIFICATIONS.md.
 #include <das/transport/RingBuffer.h>
 
 #include <algorithm>

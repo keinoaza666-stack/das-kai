@@ -175,6 +175,7 @@ struct Scenario {
   Event manualOffsetMs;      // set the manual offset at a time
   Event autoOff;             // switch auto compensation off at a time
   Event pause;               // stop calling the plug-in for value seconds
+  Event clockReadFailure;    // make one receiver poll lose the seqlock race
 };
 
 struct BlockRecord {
@@ -192,6 +193,7 @@ struct Result {
   std::uint64_t resyncs {};
   double initialDelayMs {};
   double finalDelayMs {};
+  double appliedOffsetMs {};
   double driftPpm {};
 };
 
@@ -216,6 +218,8 @@ Result simulate(const Scenario& scenario) {
   bool paused {};
   bool manualDone {};
   bool autoDone {};
+  bool clockFailureDone {};
+  auto* header = reinterpret_cast<das::transport::RingHeader*>(shared.storage.data());
   std::int64_t pollTime = t0;
   const auto endTime = t0 + static_cast<std::int64_t>(scenario.seconds * 1.0e9);
 
@@ -271,6 +275,10 @@ Result simulate(const Scenario& scenario) {
       continue;
     }
 
+    // Hold the clock sequence odd (a writer "in progress") for this poll only.
+    const auto failClock = scenario.clockReadFailure.atSeconds >= 0.0 && !clockFailureDone &&
+                           static_cast<double>(pollTime - t0) / 1.0e9 >= scenario.clockReadFailure.atSeconds;
+    if (failClock) header->clockSequence.fetch_add(1);
     while (receiver.poll(pollTime, block)) {
       const auto ts = block.timestampNs;
       const auto simSeconds = static_cast<double>(static_cast<std::int64_t>(ts) - t0) / 1.0e9;
@@ -320,6 +328,10 @@ Result simulate(const Scenario& scenario) {
       previousFrames = block.frames;
       havePrevious = true;
     }
+    if (failClock) {
+      header->clockSequence.fetch_add(1);
+      clockFailureDone = true;
+    }
     pollTime = std::max(pollTime + 1'000'000, static_cast<std::int64_t>(receiver.nextWakeNs(pollTime))) +
                static_cast<std::int64_t>(wake(random));
   }
@@ -327,6 +339,7 @@ Result simulate(const Scenario& scenario) {
   result.underruns = receiver.underruns();
   result.resyncs = receiver.resyncs();
   result.finalDelayMs = static_cast<double>(receiver.delayNs()) / 1.0e6;
+  result.appliedOffsetMs = static_cast<double>(receiver.appliedOffsetNs()) / 1.0e6;
   result.driftPpm = sender.driftPpm();
   return result;
 }
@@ -435,6 +448,33 @@ void testPause() {
         "engine pause: a stopped DAW must not leave the delay grown");
 }
 
+void testClockReadFailure() {
+  // A reader can lose the seqlock race with the writer; that must not be
+  // mistaken for the producer going away.
+  Scenario scenario;
+  scenario.name = "clock read failure";
+  scenario.ppm = 80.0;
+  scenario.seconds = 40.0;
+  scenario.clockReadFailure = {20.0, 0.0};
+  const auto result = simulate(scenario);
+  report(scenario, result);
+  check(result.breaks.empty(), "clock read failure: output must not restart");
+  check(result.resyncs == 0, "clock read failure: no resync");
+}
+
+void testOffsetCeiling() {
+  // Even an out-of-range manual value must keep the total shift inside what
+  // OBS can buffer (960 ms).
+  Scenario scenario;
+  scenario.name = "offset ceiling";
+  scenario.seconds = 20.0;
+  scenario.manualOffsetMs = {5.0, 1000.0};
+  const auto result = simulate(scenario);
+  report(scenario, result);
+  std::printf("    applied offset %.1f ms\n", result.appliedOffsetMs);
+  check(std::abs(result.appliedOffsetMs - 850.0) < 0.001, "offset ceiling: total shift must stop at 850 ms");
+}
+
 void testBursts() {
   Scenario scenario;
   scenario.name = "late callbacks";
@@ -463,6 +503,8 @@ int main() {
   testDriftAbsorption("48k -300ppm", 48000.0, -300.0, 256, 2.0, 300.0);
   testOffsetChanges();
   testPause();
+  testClockReadFailure();
+  testOffsetCeiling();
   testBursts();
   if (failures == 0) std::printf("all sync tests passed\n");
   return failures == 0 ? 0 : 1;

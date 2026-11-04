@@ -3,6 +3,8 @@
 // panel (latency display, auto compensation, manual offset). See MODIFICATIONS.md.
 #include "PluginEditor.h"
 
+#include <das/sync/StreamReceiver.h>
+
 #include <cmath>
 
 namespace {
@@ -240,7 +242,7 @@ void DasSendEditor::timerCallback() {
 
   if (!processor_.isPrimarySender()) {
     updateStatus("1 ONLY", VisualState::warning);
-    detail_.setText("Kinu Stream  x  1 per Mac", juce::dontSendNotification);
+    detail_.setText("Kinu Stream  x  1 per user", juce::dontSendNotification);
   } else if (processor_.isRenderingOffline()) {
     updateStatus("EXPORT", VisualState::waiting);
     detail_.setText("Not sent while exporting", juce::dontSendNotification);
@@ -273,11 +275,15 @@ void DasSendEditor::timerCallback() {
       processor_.parameters().getRawParameterValue(DasSendProcessor::kManualOffsetId)->load());
   if (obsConnected_) {
     const auto autoMs = autoOn ? static_cast<double>(status.delayNs) / 1.0e6 : 0.0;
-    const auto totalMs = autoMs + manualMs;
-    syncTotal_.setText(formatMs(totalMs, false) + " ms", juce::dontSendNotification);
-    syncDirection_.setText(std::abs(totalMs) < 0.05 ? juce::String("NO SHIFT")
-                           : totalMs > 0.0          ? juce::String("EARLIER IN OBS")
-                                                    : juce::String("LATER IN OBS"),
+    // Show what OBS actually uses; a new setting is applied after it settles.
+    const auto appliedMs = static_cast<double>(status.appliedOffsetNs) / 1.0e6;
+    const auto ceilingMs = static_cast<double>(das::sync::StreamReceiver::kMaximumAppliedOffsetNs) / 1.0e6;
+    const auto pending = std::abs(appliedMs - std::min(autoMs + manualMs, ceilingMs)) > 0.05;
+    syncTotal_.setText(formatMs(appliedMs, false) + " ms", juce::dontSendNotification);
+    syncDirection_.setText(pending                    ? juce::String("APPLYING...")
+                           : std::abs(appliedMs) < 0.05 ? juce::String("NO SHIFT")
+                           : appliedMs > 0.0          ? juce::String("EARLIER IN OBS")
+                                                      : juce::String("LATER IN OBS"),
                            juce::dontSendNotification);
     syncBreakdown_.setText((autoOn ? "AUTO " + formatMs(autoMs, false) : juce::String("AUTO off")) +
                                "   MANUAL " + formatMs(manualMs, true),
