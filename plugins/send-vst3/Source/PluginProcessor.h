@@ -18,10 +18,10 @@ class DasSendProcessor final : public juce::AudioProcessor {
 public:
   static constexpr const char* kAutoCompensationId = "autoCompensation";
   static constexpr const char* kManualOffsetId = "manualOffsetMs";
-  static constexpr float kManualOffsetMinMs = -500.0F;
-  // +500 ms covers Bluetooth headphones; with the automatic part the total
-  // stays under the receiver's 850 ms ceiling (OBS buffers at most 960 ms).
-  static constexpr float kManualOffsetMaxMs = 500.0F;
+  // +-100 ms covers monitoring paths (interface, browser, wired headphones)
+  // with a usable slider resolution; the receiver caps the total at 850 ms.
+  static constexpr float kManualOffsetMinMs = -100.0F;
+  static constexpr float kManualOffsetMaxMs = 100.0F;
 
   DasSendProcessor();
   ~DasSendProcessor() override;

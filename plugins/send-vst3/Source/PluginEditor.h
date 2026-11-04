@@ -1,13 +1,46 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-// Modified for DAS Kai (2026-11-04): Discord card replaced by the sync
-// panel (latency display, auto compensation, manual offset). See MODIFICATIONS.md.
+// Modified for DAS Kai (2026-11-04): Discord card replaced by the sync panel
+// (latency display, auto compensation, manual offset); own colours and fonts
+// ("sumi and jade"); Japanese/English labels. See MODIFICATIONS.md.
 #pragma once
 
 #include "PluginProcessor.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include <functional>
 #include <memory>
+
+// Fonts are macOS system fonts, so nothing is embedded in the bundle.
+// Hiragino Maru Gothic ProN ships in a single weight (W4).
+namespace daskai::ui {
+inline constexpr const char* kTextFont = "Hiragino Maru Gothic ProN";
+inline constexpr const char* kNumberFont = "Menlo";
+
+class KaiLookAndFeel final : public juce::LookAndFeel_V4 {
+public:
+  void drawToggleButton(juce::Graphics& graphics, juce::ToggleButton& button,
+                        bool highlighted, bool down) override;
+  juce::Label* createSliderTextBox(juce::Slider& slider) override;
+};
+
+// Small text switch "日本語 ・ EN"; the selected side is drawn in the accent
+// colour and underlined.
+class LanguageSwitch final : public juce::Component {
+public:
+  LanguageSwitch();
+  std::function<void(bool japanese)> onChange;
+  void setJapanese(bool japanese);
+  void setColours(juce::Colour selected, juce::Colour unselected);
+  void paint(juce::Graphics& graphics) override;
+  void mouseUp(const juce::MouseEvent& event) override;
+
+private:
+  bool japanese_ {true};
+  juce::Colour selected_;
+  juce::Colour unselected_;
+};
+} // namespace daskai::ui
 
 class DasSendEditor final : public juce::AudioProcessorEditor,
                             private juce::Timer,
@@ -30,6 +63,8 @@ private:
   void updateStatus(const juce::String& text, VisualState state);
   [[nodiscard]] juce::Colour colourFor(VisualState state) const;
 
+  // Declared first so it outlives every child that uses it.
+  daskai::ui::KaiLookAndFeel lookAndFeel_;
   DasSendProcessor& processor_;
   bool darkMode_ {};
   bool japanese_ {true};
@@ -46,8 +81,7 @@ private:
   juce::Label syncBreakdown_;
   juce::Label manualTitle_;
   juce::Label detail_;
-  juce::TextButton japaneseButton_;
-  juce::TextButton englishButton_;
+  daskai::ui::LanguageSwitch languageSwitch_;
   juce::ToggleButton autoButton_;
   juce::Slider manualSlider_ {juce::Slider::LinearHorizontal, juce::Slider::TextBoxRight};
   std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> autoAttachment_;

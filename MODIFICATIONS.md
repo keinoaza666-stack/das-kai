@@ -51,3 +51,12 @@ was modified and when.
   OBS scenes stay attached (see dev-rules.md, rule 2).
 - Plug-in window: Japanese labels by default, switchable to English; the
   choice is saved with the DAW project.
+
+## 2026-11-04 (Keinoaza) — look and controls
+
+- Plug-in window: own colours ("sumi and jade") and macOS system fonts
+  (Hiragino Maru Gothic ProN, Menlo) to set it apart from upstream; the
+  language switch is a small "日本語 ・ EN" text toggle. Layout unchanged.
+- Manual offset range -100..+100 ms in 0.1 ms steps; Shift-drag for fine
+  adjustment now works (the swap-mode flag was off).
+- Wording: "timing compensation", "DAW audio earlier / later".

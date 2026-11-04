@@ -1,42 +1,71 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-// Modified for DAS Kai (2026-11-04): Discord card replaced by the sync
-// panel (latency display, auto compensation, manual offset). See MODIFICATIONS.md.
+// Modified for DAS Kai (2026-11-04): Discord card replaced by the sync panel
+// (latency display, auto compensation, manual offset); own colours and fonts
+// ("sumi and jade"); Japanese/English labels. See MODIFICATIONS.md.
 #include "PluginEditor.h"
 
 #include <das/sync/StreamReceiver.h>
 
 #include <cmath>
+#include <cstdlib>
 
 namespace {
+using daskai::ui::kNumberFont;
+using daskai::ui::kTextFont;
+
+// "Sumi and jade": green-black ground, jade accent. Kept away from upstream
+// DawAudioStreamer's warm charcoal and yellow so the two are easy to tell apart.
 struct Theme {
-  juce::Colour parchment;
+  juce::Colour background;
   juce::Colour card;
   juce::Colour ink;
-  juce::Colour graphite;
-  juce::Colour linen;
-  juce::Colour smoke;
-  juce::Colour markerYellow;
-  juce::Colour detail;
+  juce::Colour muted;
+  juce::Colour line;
+  juce::Colour track;
+  juce::Colour accent;
+  juce::Colour idlePill;
+  juce::Colour activePill;
+  juce::Colour activeIcon;
+  juce::Colour warning;
+  juce::Colour warningIcon;
+  juce::Colour error;
+  juce::Colour errorIcon;
 };
 
 Theme themeFor(const bool darkMode) {
   if (darkMode) {
-    return {juce::Colour(0xff151411), juce::Colour(0xff211f1b),
-            juce::Colour(0xfff7f3eb), juce::Colour(0xffbcb4a5),
-            juce::Colour(0xff484239), juce::Colour(0xff3a3630),
-            juce::Colour(0xfff2cd32), juce::Colour(0xff2a2721)};
+    return {juce::Colour(0xff0f1211), juce::Colour(0xff181d1b), juce::Colour(0xffe9efec),
+            juce::Colour(0xff8fa199), juce::Colour(0xff27302c), juce::Colour(0xff26302c),
+            juce::Colour(0xff36c2a0), juce::Colour(0xff222a27), juce::Colour(0xff1f8f74),
+            juce::Colour(0xff5fd8b9), juce::Colour(0xffe0a43a), juce::Colour(0xffe0a43a),
+            juce::Colour(0xffd9534f), juce::Colour(0xffff8a80)};
   }
-  return {juce::Colour(0xffded5c8), juce::Colour(0xfff3eee7),
-          juce::Colour(0xff000000), juce::Colour(0xff6a6559),
-          juce::Colour(0xffc8beb1), juce::Colour(0xffddd5ca),
-          juce::Colour(0xffffdd33), juce::Colour(0xffd2c7b8)};
+  return {juce::Colour(0xffeef3f1), juce::Colour(0xfffafcfb), juce::Colour(0xff142019),
+          juce::Colour(0xff5d7068), juce::Colour(0xffc9d6d0), juce::Colour(0xffdbe5e0),
+          juce::Colour(0xff1e9e80), juce::Colour(0xffdde7e2), juce::Colour(0xff1e8a70),
+          juce::Colour(0xff1e8a70), juce::Colour(0xffe0a43a), juce::Colour(0xffa8721f),
+          juce::Colour(0xffd9534f), juce::Colour(0xffc0392b)};
+}
+
+bool resolveDarkMode() {
+  // Development override for screenshots of both themes.
+  if (const auto* forced = std::getenv("DAS_KAI_UI_THEME"); forced != nullptr) {
+    if (juce::String(forced) == "light") return false;
+    if (juce::String(forced) == "dark") return true;
+  }
+  return juce::Desktop::getInstance().isDarkModeActive();
+}
+
+juce::FontOptions textFont(const float size) { return juce::FontOptions(kTextFont, size, juce::Font::plain); }
+juce::FontOptions numberFont(const float size, const bool bold) {
+  return juce::FontOptions(kNumberFont, size, bold ? juce::Font::bold : juce::Font::plain);
 }
 
 void drawRaisedPanel(juce::Graphics& graphics, juce::Rectangle<float> bounds,
                      const float radius, const Theme& theme) {
   graphics.setColour(theme.card);
   graphics.fillRoundedRectangle(bounds, radius);
-  graphics.setColour(theme.linen);
+  graphics.setColour(theme.line);
   graphics.drawRoundedRectangle(bounds.reduced(0.5F), radius, 1.0F);
 }
 
@@ -62,59 +91,119 @@ juce::String formatMs(const double milliseconds, const bool signedValue) {
 }
 } // namespace
 
+namespace daskai::ui {
+
+void KaiLookAndFeel::drawToggleButton(juce::Graphics& graphics, juce::ToggleButton& button,
+                                      const bool highlighted, const bool down) {
+  const auto fontSize = juce::jmin(15.0F, static_cast<float>(button.getHeight()) * 0.75F);
+  const auto tickWidth = fontSize * 1.1F;
+  drawTickBox(graphics, button, 4.0F, (static_cast<float>(button.getHeight()) - tickWidth) * 0.5F,
+              tickWidth, tickWidth, button.getToggleState(), button.isEnabled(), highlighted, down);
+  graphics.setColour(button.findColour(juce::ToggleButton::textColourId));
+  graphics.setFont(textFont(fontSize + 1.0F));
+  if (!button.isEnabled()) graphics.setOpacity(0.5F);
+  graphics.drawFittedText(button.getButtonText(),
+                          button.getLocalBounds()
+                              .withTrimmedLeft(juce::roundToInt(tickWidth) + 10)
+                              .withTrimmedRight(2),
+                          juce::Justification::centredLeft, 1);
+}
+
+juce::Label* KaiLookAndFeel::createSliderTextBox(juce::Slider& slider) {
+  auto* label = juce::LookAndFeel_V4::createSliderTextBox(slider);
+  label->setFont(numberFont(13.0F, false));
+  return label;
+}
+
+LanguageSwitch::LanguageSwitch() { setMouseCursor(juce::MouseCursor::PointingHandCursor); }
+
+void LanguageSwitch::setJapanese(const bool japanese) {
+  japanese_ = japanese;
+  repaint();
+}
+
+void LanguageSwitch::setColours(const juce::Colour selected, const juce::Colour unselected) {
+  selected_ = selected;
+  unselected_ = unselected;
+  repaint();
+}
+
+namespace {
+// Fixed slots sized for 12 pt text: "日本語" needs about 37 px.
+constexpr float kJapaneseSlot = 46.0F;
+constexpr float kSeparatorSlot = 12.0F;
+} // namespace
+
+void LanguageSwitch::paint(juce::Graphics& graphics) {
+  const auto bounds = getLocalBounds().toFloat();
+  const auto japaneseArea = bounds.withWidth(kJapaneseSlot);
+  const auto separatorArea = bounds.withX(kJapaneseSlot).withWidth(kSeparatorSlot);
+  const auto englishArea = bounds.withTrimmedLeft(kJapaneseSlot + kSeparatorSlot);
+  graphics.setFont(textFont(12.0F));
+  const auto draw = [&](const juce::String& label, const juce::Rectangle<float> area, const bool selected) {
+    graphics.setColour(selected ? selected_ : unselected_);
+    graphics.drawText(label, area, juce::Justification::centred);
+    if (selected) {
+      const auto width = juce::GlyphArrangement::getStringWidth(graphics.getCurrentFont(), label);
+      graphics.fillRect(area.getCentreX() - width * 0.5F, area.getBottom() - 2.0F, width, 1.5F);
+    }
+  };
+  draw(juce::String(juce::CharPointer_UTF8("日本語")), japaneseArea, japanese_);
+  graphics.setColour(unselected_);
+  graphics.drawText(juce::String(juce::CharPointer_UTF8("・")), separatorArea,
+                    juce::Justification::centred);
+  draw("EN", englishArea, !japanese_);
+}
+
+void LanguageSwitch::mouseUp(const juce::MouseEvent& event) {
+  if (!getLocalBounds().contains(event.getPosition())) return;
+  const auto japanese = static_cast<float>(event.x) < kJapaneseSlot + kSeparatorSlot * 0.5F;
+  if (japanese == japanese_) return;
+  setJapanese(japanese);
+  if (onChange) onChange(japanese);
+}
+
+} // namespace daskai::ui
+
 DasSendEditor::DasSendEditor(DasSendProcessor& processor)
     : AudioProcessorEditor(processor), processor_(processor) {
-  darkMode_ = juce::Desktop::getInstance().isDarkModeActive();
+  setLookAndFeel(&lookAndFeel_);
+  darkMode_ = resolveDarkMode();
 
   title_.setText("DAS Kai", juce::dontSendNotification);
-  title_.setFont(juce::FontOptions(25.0F, juce::Font::bold));
+  title_.setFont(textFont(26.0F));
   addAndMakeVisible(title_);
 
   subtitle_.setText("DAW  >  OBS", juce::dontSendNotification);
-  subtitle_.setFont(juce::FontOptions(11.0F, juce::Font::bold));
+  subtitle_.setFont(textFont(11.0F));
   subtitle_.setJustificationType(juce::Justification::centredRight);
   addAndMakeVisible(subtitle_);
 
   for (auto* heading : {&obsTitle_, &syncTitle_, &manualTitle_}) {
-    heading->setFont(juce::FontOptions(13.0F, juce::Font::bold));
+    heading->setFont(textFont(13.0F));
     addAndMakeVisible(*heading);
   }
   obsTitle_.setText("OBS", juce::dontSendNotification);
 
   japanese_ = processor_.usesJapanese();
-  japaneseButton_.setButtonText(juce::String(juce::CharPointer_UTF8("日本語")));
-  englishButton_.setButtonText("English");
-  for (auto* button : {&japaneseButton_, &englishButton_}) {
-    button->setClickingTogglesState(true);
-    button->setRadioGroupId(1, juce::dontSendNotification);
-    addAndMakeVisible(*button);
-  }
-  japaneseButton_.setConnectedEdges(juce::Button::ConnectedOnRight);
-  englishButton_.setConnectedEdges(juce::Button::ConnectedOnLeft);
-  japaneseButton_.onClick = [this] {
-    if (!japaneseButton_.getToggleState()) return;
-    processor_.setUsesJapanese(true);
-    japanese_ = true;
+  languageSwitch_.setJapanese(japanese_);
+  languageSwitch_.onChange = [this](const bool japanese) {
+    processor_.setUsesJapanese(japanese);
+    japanese_ = japanese;
     applyLanguage();
   };
-  englishButton_.onClick = [this] {
-    if (!englishButton_.getToggleState()) return;
-    processor_.setUsesJapanese(false);
-    japanese_ = false;
-    applyLanguage();
-  };
+  addAndMakeVisible(languageSwitch_);
 
-  obsStatus_.setFont(juce::FontOptions(18.0F, juce::Font::bold));
+  obsStatus_.setFont(textFont(18.0F));
   obsStatus_.setJustificationType(juce::Justification::centred);
   addAndMakeVisible(obsStatus_);
 
-  syncTotal_.setFont(juce::FontOptions(30.0F, juce::Font::bold));
+  syncTotal_.setFont(numberFont(30.0F, true));
   addAndMakeVisible(syncTotal_);
   for (auto* small : {&clockInfo_, &syncDirection_, &syncBreakdown_, &detail_}) {
-    small->setFont(juce::FontOptions(12.0F));
+    small->setFont(textFont(12.0F));
     addAndMakeVisible(*small);
   }
-  syncDirection_.setFont(juce::FontOptions(11.0F, juce::Font::bold));
   detail_.setJustificationType(juce::Justification::centredRight);
 
   addAndMakeVisible(autoButton_);
@@ -122,7 +211,8 @@ DasSendEditor::DasSendEditor(DasSendProcessor& processor)
       processor_.parameters(), DasSendProcessor::kAutoCompensationId, autoButton_);
 
   manualSlider_.setTextBoxStyle(juce::Slider::TextBoxRight, false, 92, 26);
-  manualSlider_.setVelocityModeParameters(0.25, 1, 0.0, false, juce::ModifierKeys::shiftModifier);
+  // Hold Shift for fine adjustment (velocity mode at a quarter of the speed).
+  manualSlider_.setVelocityModeParameters(0.25, 1, 0.0, true, juce::ModifierKeys::shiftModifier);
   addAndMakeVisible(manualSlider_);
   manualAttachment_ = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
       processor_.parameters(), DasSendProcessor::kManualOffsetId, manualSlider_);
@@ -149,20 +239,18 @@ DasSendEditor::DasSendEditor(DasSendProcessor& processor)
 DasSendEditor::~DasSendEditor() {
   juce::Desktop::getInstance().removeDarkModeSettingListener(this);
   stopTimer();
+  setLookAndFeel(nullptr);
 }
 
 juce::Colour DasSendEditor::colourFor(const VisualState state) const {
   const auto theme = themeFor(darkMode_);
   switch (state) {
-    case VisualState::active:
-      return darkMode_ ? juce::Colour(0xff95c96a) : juce::Colour(0xff3e6b15);
-    case VisualState::waiting: return theme.graphite;
-    case VisualState::warning:
-      return darkMode_ ? theme.markerYellow : juce::Colour(0xffaa7e2e);
-    case VisualState::error:
-      return darkMode_ ? juce::Colour(0xffff7b59) : juce::Colour(0xffc74725);
+    case VisualState::active: return theme.activeIcon;
+    case VisualState::waiting: return theme.muted;
+    case VisualState::warning: return theme.warningIcon;
+    case VisualState::error: return theme.errorIcon;
   }
-  return theme.graphite;
+  return theme.muted;
 }
 
 juce::String DasSendEditor::text(const char* japanese, const char* english) const {
@@ -170,16 +258,15 @@ juce::String DasSendEditor::text(const char* japanese, const char* english) cons
 }
 
 void DasSendEditor::applyLanguage() {
-  japaneseButton_.setToggleState(japanese_, juce::dontSendNotification);
-  englishButton_.setToggleState(!japanese_, juce::dontSendNotification);
-  syncTitle_.setText(text("OBSでの位置", "SYNC"), juce::dontSendNotification);
+  languageSwitch_.setJapanese(japanese_);
+  syncTitle_.setText(text("タイミング補正", "SYNC"), juce::dontSendNotification);
   manualTitle_.setText(text("手動補正", "MANUAL"), juce::dontSendNotification);
   autoButton_.setButtonText(text("自動補正", "AUTO"));
   timerCallback();
 }
 
 void DasSendEditor::darkModeSettingChanged() {
-  darkMode_ = juce::Desktop::getInstance().isDarkModeActive();
+  darkMode_ = resolveDarkMode();
   applyTheme();
 }
 
@@ -189,24 +276,18 @@ void DasSendEditor::applyTheme() {
   syncTotal_.setColour(juce::Label::textColourId, theme.ink);
   for (auto* label : {&subtitle_, &obsTitle_, &syncTitle_, &manualTitle_, &clockInfo_,
                       &syncDirection_, &syncBreakdown_, &detail_})
-    label->setColour(juce::Label::textColourId, theme.graphite);
+    label->setColour(juce::Label::textColourId, theme.muted);
+  languageSwitch_.setColours(theme.accent, theme.muted);
 
-  for (auto* button : {&japaneseButton_, &englishButton_}) {
-    button->setColour(juce::TextButton::buttonColourId, theme.card);
-    button->setColour(juce::TextButton::buttonOnColourId, theme.markerYellow);
-    button->setColour(juce::TextButton::textColourOffId, theme.graphite);
-    button->setColour(juce::TextButton::textColourOnId, juce::Colours::black);
-    button->setColour(juce::ComboBox::outlineColourId, theme.linen);
-  }
   autoButton_.setColour(juce::ToggleButton::textColourId, theme.ink);
-  autoButton_.setColour(juce::ToggleButton::tickColourId, theme.ink);
-  autoButton_.setColour(juce::ToggleButton::tickDisabledColourId, theme.graphite);
-  manualSlider_.setColour(juce::Slider::backgroundColourId, theme.smoke);
-  manualSlider_.setColour(juce::Slider::trackColourId, theme.markerYellow);
+  autoButton_.setColour(juce::ToggleButton::tickColourId, theme.accent);
+  autoButton_.setColour(juce::ToggleButton::tickDisabledColourId, theme.muted);
+  manualSlider_.setColour(juce::Slider::backgroundColourId, theme.track);
+  manualSlider_.setColour(juce::Slider::trackColourId, theme.accent);
   manualSlider_.setColour(juce::Slider::thumbColourId, theme.ink);
   manualSlider_.setColour(juce::Slider::textBoxTextColourId, theme.ink);
   manualSlider_.setColour(juce::Slider::textBoxBackgroundColourId, theme.card);
-  manualSlider_.setColour(juce::Slider::textBoxOutlineColourId, theme.linen);
+  manualSlider_.setColour(juce::Slider::textBoxOutlineColourId, theme.line);
   timerCallback();
 }
 
@@ -217,20 +298,20 @@ void DasSendEditor::updateStatus(const juce::String& value, const VisualState st
   obsStatus_.setColour(juce::Label::textColourId,
                        state == VisualState::active || state == VisualState::error
                            ? juce::Colours::white
-                           : state == VisualState::warning ? juce::Colours::black : theme.ink);
+                           : state == VisualState::warning ? juce::Colour(0xff2a1a00) : theme.ink);
 }
 
 void DasSendEditor::paint(juce::Graphics& graphics) {
   const auto theme = themeFor(darkMode_);
-  graphics.fillAll(theme.parchment);
+  graphics.fillAll(theme.background);
 
   auto marker = juce::Path();
-  marker.startNewSubPath(24.0F, 46.0F);
-  marker.lineTo(137.0F, 42.0F);
+  marker.startNewSubPath(24.0F, 47.0F);
+  marker.lineTo(137.0F, 43.0F);
   marker.lineTo(141.0F, 58.0F);
   marker.lineTo(22.0F, 61.0F);
   marker.closeSubPath();
-  graphics.setColour(theme.markerYellow.withAlpha(0.9F));
+  graphics.setColour(theme.accent.withAlpha(0.85F));
   graphics.fillPath(marker);
 
   drawRaisedPanel(graphics, {24.0F, 82.0F, 278.0F, 124.0F}, 12.0F, theme);
@@ -239,12 +320,12 @@ void DasSendEditor::paint(juce::Graphics& graphics) {
 
   const auto statusFill = [&theme](const VisualState state) {
     switch (state) {
-      case VisualState::active: return juce::Colour(0xff3e6b15);
-      case VisualState::waiting: return theme.smoke;
-      case VisualState::warning: return theme.markerYellow;
-      case VisualState::error: return juce::Colour(0xffc74725);
+      case VisualState::active: return theme.activePill;
+      case VisualState::waiting: return theme.idlePill;
+      case VisualState::warning: return theme.warning;
+      case VisualState::error: return theme.error;
     }
-    return theme.smoke;
+    return theme.idlePill;
   };
   graphics.setColour(statusFill(obsState_));
   graphics.fillRoundedRectangle(106.0F, 120.0F, 168.0F, 32.0F, 16.0F);
@@ -253,16 +334,15 @@ void DasSendEditor::paint(juce::Graphics& graphics) {
 }
 
 void DasSendEditor::resized() {
-  title_.setBounds(26, 19, 250, 40);
-  subtitle_.setBounds(300, 25, 128, 26);
-  japaneseButton_.setBounds(440, 26, 76, 26);
-  englishButton_.setBounds(516, 26, 76, 26);
+  title_.setBounds(26, 18, 250, 40);
+  subtitle_.setBounds(380, 26, 112, 22);
+  languageSwitch_.setBounds(506, 27, 86, 20);
 
   obsTitle_.setBounds(108, 94, 168, 22);
   obsStatus_.setBounds(119, 117, 144, 38);
   clockInfo_.setBounds(42, 168, 250, 24);
 
-  syncTitle_.setBounds(338, 92, 120, 20);
+  syncTitle_.setBounds(338, 92, 200, 20);
   syncTotal_.setBounds(336, 110, 250, 40);
   syncDirection_.setBounds(338, 148, 250, 18);
   syncBreakdown_.setBounds(338, 170, 250, 24);
@@ -302,7 +382,7 @@ void DasSendEditor::timerCallback() {
   } else {
     updateStatus(obsActive ? text("受信中", "OK") : text("待機中", "WAIT"),
                  obsActive ? VisualState::active : VisualState::waiting);
-    detail_.setText(obsActive ? text("＋で前に置く　ダブルクリックで0", "+ = earlier in OBS   double-click = 0")
+    detail_.setText(obsActive ? text("＋で早める　Shift+ドラッグで細かく", "+ = earlier   Shift-drag = fine")
                               : text("OBSのソースに「DAS Kai（DAW）」を追加", "Add source  DAS Kai (DAW)  in OBS"),
                     juce::dontSendNotification);
   }
@@ -326,9 +406,9 @@ void DasSendEditor::timerCallback() {
     const auto pending = std::abs(appliedMs - std::min(autoMs + manualMs, ceilingMs)) > 0.05;
     syncTotal_.setText(formatMs(appliedMs, false) + " ms", juce::dontSendNotification);
     syncDirection_.setText(pending                      ? text("反映中…", "APPLYING...")
-                           : std::abs(appliedMs) < 0.05 ? text("ずらしていません", "NO SHIFT")
-                           : appliedMs > 0.0            ? text("DAWの音を前に置いています", "EARLIER IN OBS")
-                                                        : text("DAWの音を後ろに置いています", "LATER IN OBS"),
+                           : std::abs(appliedMs) < 0.05 ? text("補正していません", "NO SHIFT")
+                           : appliedMs > 0.0            ? text("DAWの音を早めています", "DAW AUDIO EARLIER")
+                                                        : text("DAWの音を遅らせています", "DAW AUDIO LATER"),
                            juce::dontSendNotification);
     syncBreakdown_.setText((autoOn ? text("自動 ", "AUTO ") + formatMs(autoMs, false) : text("自動 オフ", "AUTO off")) +
                                text("　手動 ", "   MANUAL ") + formatMs(manualMs, true),
