@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-// Modified for Kinu Stream (2026-11-04): Discord card replaced by the sync
+// Modified for DAS Kai (2026-11-04): Discord card replaced by the sync
 // panel (latency display, auto compensation, manual offset). See MODIFICATIONS.md.
 #pragma once
 
@@ -24,11 +24,15 @@ private:
   void timerCallback() override;
   void darkModeSettingChanged() override;
   void applyTheme();
+  void applyLanguage();
+  // Japanese text as UTF-8, English as ASCII.
+  [[nodiscard]] juce::String text(const char* japanese, const char* english) const;
   void updateStatus(const juce::String& text, VisualState state);
   [[nodiscard]] juce::Colour colourFor(VisualState state) const;
 
   DasSendProcessor& processor_;
   bool darkMode_ {};
+  bool japanese_ {true};
   VisualState obsState_ {VisualState::waiting};
   bool obsConnected_ {};
   juce::Label title_;
@@ -42,7 +46,9 @@ private:
   juce::Label syncBreakdown_;
   juce::Label manualTitle_;
   juce::Label detail_;
-  juce::ToggleButton autoButton_ {"AUTO"};
+  juce::TextButton japaneseButton_;
+  juce::TextButton englishButton_;
+  juce::ToggleButton autoButton_;
   juce::Slider manualSlider_ {juce::Slider::LinearHorizontal, juce::Slider::TextBoxRight};
   std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> autoAttachment_;
   std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> manualAttachment_;

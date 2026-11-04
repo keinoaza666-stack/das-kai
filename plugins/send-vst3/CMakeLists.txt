@@ -1,5 +1,5 @@
-juce_add_plugin(KinuStream
-  PRODUCT_NAME "Kinu Stream"
+juce_add_plugin(DasKai
+  PRODUCT_NAME "DAS Kai"
   VERSION "${DAS_COMPONENT_VERSION}"
   COMPANY_NAME "${DAS_PUBLISHER}"
   BUNDLE_ID "com.keinoaza.kinustream"
@@ -17,19 +17,19 @@ juce_add_plugin(KinuStream
   COPY_PLUGIN_AFTER_BUILD FALSE
 )
 
-target_sources(KinuStream PRIVATE
+target_sources(DasKai PRIVATE
   Source/PluginEditor.cpp
   Source/PluginEditor.h
   Source/PluginProcessor.cpp
   Source/PluginProcessor.h
 )
-target_compile_definitions(KinuStream PUBLIC
+target_compile_definitions(DasKai PUBLIC
   JUCE_WEB_BROWSER=0
   JUCE_USE_CURL=0
   JUCE_VST3_CAN_REPLACE_VST2=0
   JUCE_IGNORE_VST3_MISMATCHED_PARAMETER_ID_WARNING=1
 )
-target_link_libraries(KinuStream PRIVATE
+target_link_libraries(DasKai PRIVATE
   das_audio_core
   das_sync
   das_transport

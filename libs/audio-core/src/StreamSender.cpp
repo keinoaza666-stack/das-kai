@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Added for Kinu Stream (2026-11-04). See MODIFICATIONS.md.
+// Added for DAS Kai (2026-11-04). See MODIFICATIONS.md.
 #include <das/audio/StreamSender.h>
 
 #include <algorithm>

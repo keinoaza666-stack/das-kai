@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-// Modified for Kinu Stream (2026-11-04): renamed paths and titles.
+// Modified for DAS Kai (2026-11-04): renamed paths and titles.
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_gui_extra/juce_gui_extra.h>
 
@@ -9,7 +9,7 @@ namespace {
 class EditorWindow final : public juce::DocumentWindow {
 public:
   explicit EditorWindow(juce::AudioPluginInstance& plugin)
-      : DocumentWindow("Kinu Stream UI Test", juce::Colour(0xff10151d),
+      : DocumentWindow("DAS Kai UI Test", juce::Colour(0xff10151d),
                        DocumentWindow::closeButton) {
     setUsingNativeTitleBar(true);
     setContentOwned(plugin.createEditor(), true);
@@ -22,7 +22,7 @@ public:
 
 class EditorHostApplication final : public juce::JUCEApplication {
 public:
-  const juce::String getApplicationName() override { return "Kinu Stream UI Test"; }
+  const juce::String getApplicationName() override { return "DAS Kai UI Test"; }
   const juce::String getApplicationVersion() override { return "0.1.0"; }
 
   void initialise(const juce::String&) override {
@@ -32,19 +32,19 @@ public:
                          .getParentDirectory()
                          .getParentDirectory()
                          .getParentDirectory();
-    const auto bundle = buildRoot.getChildFile("plugins/send-vst3/KinuStream_artefacts/Release/VST3/Kinu Stream.vst3");
+    const auto bundle = buildRoot.getChildFile("plugins/send-vst3/DasKai_artefacts/Release/VST3/DAS Kai.vst3");
     juce::OwnedArray<juce::PluginDescription> descriptions;
     format_.findAllTypesForFile(descriptions, bundle.getFullPathName());
     if (descriptions.size() != 1) {
       juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
-                                             "Kinu Stream UI Test", "Could not load the VST3");
+                                             "DAS Kai UI Test", "Could not load the VST3");
       return;
     }
     juce::String error;
     plugin_ = format_.createInstanceFromDescription(*descriptions[0], 48000.0, 512, error);
     if (!plugin_) {
       juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
-                                             "Kinu Stream UI Test", error);
+                                             "DAS Kai UI Test", error);
       return;
     }
     plugin_->setPlayConfigDetails(2, 2, 48000.0, 512);

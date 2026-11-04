@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-// Modified for Kinu Stream (2026-11-04): timestamped transport with a clock
+// Modified for DAS Kai (2026-11-04): timestamped transport with a clock
 // model, latency compensation controls, macOS only. See MODIFICATIONS.md.
 #pragma once
 
@@ -47,6 +47,11 @@ public:
   void setStateInformation(const void*, int) override;
 
   [[nodiscard]] juce::AudioProcessorValueTreeState& parameters() noexcept { return parameters_; }
+  // Window language; saved with the DAW project. Japanese unless set to English.
+  // Message thread only.
+  static constexpr const char* kLanguageProperty = "uiLanguage";
+  [[nodiscard]] bool usesJapanese() const;
+  void setUsesJapanese(bool japanese);
   [[nodiscard]] double currentSampleRate() const noexcept { return sampleRate_.load(); }
   [[nodiscard]] bool sampleRateSupported() const noexcept { return sampleRateSupported_.load(); }
   [[nodiscard]] bool transportReady() const noexcept { return transportReady_.load(); }

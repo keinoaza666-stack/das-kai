@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Kinu Stream: runs the real libobs audio engine headless (from the installed
-// OBS.app), loads the built Kinu Stream OBS plug-in, feeds it from a
+// DAS Kai: runs the real libobs audio engine headless (from the installed
+// OBS.app), loads the built DAS Kai OBS plug-in, feeds it from a
 // StreamSender whose "DAW clock" runs off by a chosen ppm, and analyses OBS's
 // final audio mix: where OBS places the audio in time, whether the drift
 // accumulates, whether the audio is continuous, and what OBS logs about
 // buffering. Touches no OBS profile or scene: libobs starts without config.
 //
-// Usage: kinu_stream_obs_harness <kinu-stream-obs.plugin> [seconds] [ppm] [offset-at-s]
+// Usage: das_kai_obs_harness <das-kai-obs.plugin> [seconds] [ppm] [offset-at-s]
 #include <das/audio/StreamSender.h>
 #include <das/transport/NamedSharedMemory.h>
 
@@ -40,7 +40,7 @@ void logHandler(int level, const char* format, va_list args, void*) {
   vsnprintf(line, sizeof(line), format, args);
   const std::string text(line);
   if (level <= LOG_WARNING || text.find("buffering") != std::string::npos ||
-      text.find("kinu") != std::string::npos || text.find("Kinu") != std::string::npos ||
+      text.find("das-kai") != std::string::npos || text.find("DAS Kai") != std::string::npos ||
       text.find("timestamp") != std::string::npos) {
     const std::lock_guard lock(logMutex);
     interestingLog.push_back(text);
@@ -129,7 +129,7 @@ double meanError(const Analysis& analysis, const double from, const double to, d
 
 int main(const int argc, char** argv) {
   if (argc < 2) {
-    std::fprintf(stderr, "usage: %s <kinu-stream-obs.plugin> [seconds] [ppm] [offset-at-s]\n", argv[0]);
+    std::fprintf(stderr, "usage: %s <das-kai-obs.plugin> [seconds] [ppm] [offset-at-s]\n", argv[0]);
     return 1;
   }
   const std::string bundle = argv[1];
@@ -159,7 +159,7 @@ int main(const int argc, char** argv) {
   obs_audio_info audio {48000, SPEAKERS_STEREO};
   if (!obs_reset_audio(&audio)) return 4;
 
-  const auto binary = bundle + "/Contents/MacOS/kinu-stream-obs";
+  const auto binary = bundle + "/Contents/MacOS/das-kai-obs";
   const auto dataPath = bundle + "/Contents/Resources";
   obs_module_t* module {};
   if (const auto result = obs_open_module(&module, binary.c_str(), dataPath.c_str()); result != MODULE_SUCCESS) {
@@ -167,7 +167,7 @@ int main(const int argc, char** argv) {
     return 5;
   }
   if (!obs_init_module(module)) return 6;
-  obs_source_t* source = obs_source_create("kinu_stream_audio_source", "Kinu Stream", nullptr, nullptr);
+  obs_source_t* source = obs_source_create("kinu_stream_audio_source", "DAS Kai", nullptr, nullptr);
   if (source == nullptr) return 7;
   obs_set_output_source(0, source);
 

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-// Modified for Kinu Stream (2026-11-04): Discord card replaced by the sync
+// Modified for DAS Kai (2026-11-04): Discord card replaced by the sync
 // panel (latency display, auto compensation, manual offset). See MODIFICATIONS.md.
 #include "PluginEditor.h"
 
@@ -66,7 +66,7 @@ DasSendEditor::DasSendEditor(DasSendProcessor& processor)
     : AudioProcessorEditor(processor), processor_(processor) {
   darkMode_ = juce::Desktop::getInstance().isDarkModeActive();
 
-  title_.setText("Kinu Stream", juce::dontSendNotification);
+  title_.setText("DAS Kai", juce::dontSendNotification);
   title_.setFont(juce::FontOptions(25.0F, juce::Font::bold));
   addAndMakeVisible(title_);
 
@@ -80,8 +80,29 @@ DasSendEditor::DasSendEditor(DasSendProcessor& processor)
     addAndMakeVisible(*heading);
   }
   obsTitle_.setText("OBS", juce::dontSendNotification);
-  syncTitle_.setText("SYNC", juce::dontSendNotification);
-  manualTitle_.setText("MANUAL", juce::dontSendNotification);
+
+  japanese_ = processor_.usesJapanese();
+  japaneseButton_.setButtonText(juce::String(juce::CharPointer_UTF8("日本語")));
+  englishButton_.setButtonText("English");
+  for (auto* button : {&japaneseButton_, &englishButton_}) {
+    button->setClickingTogglesState(true);
+    button->setRadioGroupId(1, juce::dontSendNotification);
+    addAndMakeVisible(*button);
+  }
+  japaneseButton_.setConnectedEdges(juce::Button::ConnectedOnRight);
+  englishButton_.setConnectedEdges(juce::Button::ConnectedOnLeft);
+  japaneseButton_.onClick = [this] {
+    if (!japaneseButton_.getToggleState()) return;
+    processor_.setUsesJapanese(true);
+    japanese_ = true;
+    applyLanguage();
+  };
+  englishButton_.onClick = [this] {
+    if (!englishButton_.getToggleState()) return;
+    processor_.setUsesJapanese(false);
+    japanese_ = false;
+    applyLanguage();
+  };
 
   obsStatus_.setFont(juce::FontOptions(18.0F, juce::Font::bold));
   obsStatus_.setJustificationType(juce::Justification::centred);
@@ -118,6 +139,7 @@ DasSendEditor::DasSendEditor(DasSendProcessor& processor)
         true, parameter->convertFrom0to1(parameter->getDefaultValue()));
 
   setSize(620, 330);
+  applyLanguage();
   applyTheme();
   juce::Desktop::getInstance().addDarkModeSettingListener(this);
   startTimerHz(5);
@@ -143,6 +165,19 @@ juce::Colour DasSendEditor::colourFor(const VisualState state) const {
   return theme.graphite;
 }
 
+juce::String DasSendEditor::text(const char* japanese, const char* english) const {
+  return japanese_ ? juce::String(juce::CharPointer_UTF8(japanese)) : juce::String(english);
+}
+
+void DasSendEditor::applyLanguage() {
+  japaneseButton_.setToggleState(japanese_, juce::dontSendNotification);
+  englishButton_.setToggleState(!japanese_, juce::dontSendNotification);
+  syncTitle_.setText(text("OBSでの位置", "SYNC"), juce::dontSendNotification);
+  manualTitle_.setText(text("手動補正", "MANUAL"), juce::dontSendNotification);
+  autoButton_.setButtonText(text("自動補正", "AUTO"));
+  timerCallback();
+}
+
 void DasSendEditor::darkModeSettingChanged() {
   darkMode_ = juce::Desktop::getInstance().isDarkModeActive();
   applyTheme();
@@ -156,6 +191,13 @@ void DasSendEditor::applyTheme() {
                       &syncDirection_, &syncBreakdown_, &detail_})
     label->setColour(juce::Label::textColourId, theme.graphite);
 
+  for (auto* button : {&japaneseButton_, &englishButton_}) {
+    button->setColour(juce::TextButton::buttonColourId, theme.card);
+    button->setColour(juce::TextButton::buttonOnColourId, theme.markerYellow);
+    button->setColour(juce::TextButton::textColourOffId, theme.graphite);
+    button->setColour(juce::TextButton::textColourOnId, juce::Colours::black);
+    button->setColour(juce::ComboBox::outlineColourId, theme.linen);
+  }
   autoButton_.setColour(juce::ToggleButton::textColourId, theme.ink);
   autoButton_.setColour(juce::ToggleButton::tickColourId, theme.ink);
   autoButton_.setColour(juce::ToggleButton::tickDisabledColourId, theme.graphite);
@@ -184,8 +226,8 @@ void DasSendEditor::paint(juce::Graphics& graphics) {
 
   auto marker = juce::Path();
   marker.startNewSubPath(24.0F, 46.0F);
-  marker.lineTo(181.0F, 42.0F);
-  marker.lineTo(185.0F, 58.0F);
+  marker.lineTo(137.0F, 42.0F);
+  marker.lineTo(141.0F, 58.0F);
   marker.lineTo(22.0F, 61.0F);
   marker.closeSubPath();
   graphics.setColour(theme.markerYellow.withAlpha(0.9F));
@@ -212,7 +254,9 @@ void DasSendEditor::paint(juce::Graphics& graphics) {
 
 void DasSendEditor::resized() {
   title_.setBounds(26, 19, 250, 40);
-  subtitle_.setBounds(360, 25, 234, 26);
+  subtitle_.setBounds(300, 25, 128, 26);
+  japaneseButton_.setBounds(440, 26, 76, 26);
+  englishButton_.setBounds(516, 26, 76, 26);
 
   obsTitle_.setBounds(108, 94, 168, 22);
   obsStatus_.setBounds(119, 117, 144, 38);
@@ -241,31 +285,32 @@ void DasSendEditor::timerCallback() {
   obsConnected_ = obsActive && status.delayNs > 0;
 
   if (!processor_.isPrimarySender()) {
-    updateStatus("1 ONLY", VisualState::warning);
-    detail_.setText("Kinu Stream  x  1 per user", juce::dontSendNotification);
+    updateStatus(text("1個のみ", "1 ONLY"), VisualState::warning);
+    detail_.setText(text("同じユーザーで同時に1個まで", "DAS Kai  x  1 per user"), juce::dontSendNotification);
   } else if (processor_.isRenderingOffline()) {
-    updateStatus("EXPORT", VisualState::waiting);
-    detail_.setText("Not sent while exporting", juce::dontSendNotification);
+    updateStatus(text("書き出し中", "EXPORT"), VisualState::waiting);
+    detail_.setText(text("書き出し中は送りません", "Not sent while exporting"), juce::dontSendNotification);
   } else if (!processor_.sampleRateSupported()) {
     updateStatus("8-384 kHz", VisualState::error);
     detail_.setText({}, juce::dontSendNotification);
   } else if (!processor_.transportReady()) {
     updateStatus("!", VisualState::error);
-    detail_.setText("RESTART   OBS  >  DAW", juce::dontSendNotification);
+    detail_.setText(text("OBS、DAWの順に開き直してください", "RESTART   OBS  >  DAW"), juce::dontSendNotification);
   } else if (processor_.isBypassed()) {
-    updateStatus("BYPASS", VisualState::waiting);
-    detail_.setText("Sending silence", juce::dontSendNotification);
+    updateStatus(text("バイパス", "BYPASS"), VisualState::waiting);
+    detail_.setText(text("無音を送っています", "Sending silence"), juce::dontSendNotification);
   } else {
-    updateStatus(obsActive ? "OK" : "WAIT", obsActive ? VisualState::active : VisualState::waiting);
-    detail_.setText(obsActive ? "+ = earlier in OBS   double-click = 0"
-                              : "Add source  Kinu Stream (DAW)  in OBS",
+    updateStatus(obsActive ? text("受信中", "OK") : text("待機中", "WAIT"),
+                 obsActive ? VisualState::active : VisualState::waiting);
+    detail_.setText(obsActive ? text("＋で前に置く　ダブルクリックで0", "+ = earlier in OBS   double-click = 0")
+                              : text("OBSのソースに「DAS Kai（DAW）」を追加", "Add source  DAS Kai (DAW)  in OBS"),
                     juce::dontSendNotification);
   }
 
   const auto ppm = juce::roundToInt(processor_.clockDriftPpm());
   clockInfo_.setText(processor_.clockLocked()
-                         ? "CLOCK  " + juce::String(ppm >= 0 ? "+" : "") + juce::String(ppm) + " ppm"
-                         : juce::String("CLOCK  locking..."),
+                         ? text("時計のずれ  ", "CLOCK  ") + juce::String(ppm >= 0 ? "+" : "") + juce::String(ppm) + " ppm"
+                         : text("時計を合わせています…", "CLOCK  locking..."),
                      juce::dontSendNotification);
 
   const auto autoOn = processor_.parameters()
@@ -280,18 +325,18 @@ void DasSendEditor::timerCallback() {
     const auto ceilingMs = static_cast<double>(das::sync::StreamReceiver::kMaximumAppliedOffsetNs) / 1.0e6;
     const auto pending = std::abs(appliedMs - std::min(autoMs + manualMs, ceilingMs)) > 0.05;
     syncTotal_.setText(formatMs(appliedMs, false) + " ms", juce::dontSendNotification);
-    syncDirection_.setText(pending                    ? juce::String("APPLYING...")
-                           : std::abs(appliedMs) < 0.05 ? juce::String("NO SHIFT")
-                           : appliedMs > 0.0          ? juce::String("EARLIER IN OBS")
-                                                      : juce::String("LATER IN OBS"),
+    syncDirection_.setText(pending                      ? text("反映中…", "APPLYING...")
+                           : std::abs(appliedMs) < 0.05 ? text("ずらしていません", "NO SHIFT")
+                           : appliedMs > 0.0            ? text("DAWの音を前に置いています", "EARLIER IN OBS")
+                                                        : text("DAWの音を後ろに置いています", "LATER IN OBS"),
                            juce::dontSendNotification);
-    syncBreakdown_.setText((autoOn ? "AUTO " + formatMs(autoMs, false) : juce::String("AUTO off")) +
-                               "   MANUAL " + formatMs(manualMs, true),
+    syncBreakdown_.setText((autoOn ? text("自動 ", "AUTO ") + formatMs(autoMs, false) : text("自動 オフ", "AUTO off")) +
+                               text("　手動 ", "   MANUAL ") + formatMs(manualMs, true),
                            juce::dontSendNotification);
   } else {
     syncTotal_.setText("-- ms", juce::dontSendNotification);
-    syncDirection_.setText("OBS NOT CONNECTED", juce::dontSendNotification);
-    syncBreakdown_.setText(juce::String("MANUAL ") + formatMs(manualMs, true),
+    syncDirection_.setText(text("OBSとつながっていません", "OBS NOT CONNECTED"), juce::dontSendNotification);
+    syncBreakdown_.setText(text("手動 ", "MANUAL ") + formatMs(manualMs, true),
                            juce::dontSendNotification);
   }
 

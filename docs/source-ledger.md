@@ -2,9 +2,9 @@
 
 ## Scope
 
-- Topic: OBS (libobs) audio timestamp handling and r8brain latency, as relied on by Kinu Stream's sync design
+- Topic: OBS (libobs) audio timestamp handling and r8brain latency, as relied on by DAS Kai's sync design
 - Date checked: 2026-11-04
-- Research owner: Claude (Kinu Stream fork)
+- Research owner: Claude (DAS Kai fork)
 - All sources are source code at pinned commits, read locally from the FetchContent checkout (`build/*/_deps/`).
 
 ## Sources
@@ -33,7 +33,7 @@
 
 - Claim supported: timestamps within 2 s of `os_gettime_ns()` are treated as direct (no timing adjustment).
 - Exact locator: `#define MAX_TS_VAR 2000000000ULL` (line 1059); `if (uint64_diff(in.timestamp, os_time) < MAX_TS_VAR) { ... using_direct_ts = true; }`
-- Numeric values: 2,000,000,000 ns. Kinu Stream clamps its total offset to 1.2 s to stay inside it.
+- Numeric values: 2,000,000,000 ns. DAS Kai clamps its total offset to 1.2 s to stay inside it.
 
 ### S3
 

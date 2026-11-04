@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Kinu Stream sync tests: clock estimator, interpolator quality and an
+// DAS Kai sync tests: clock estimator, interpolator quality and an
 // end-to-end simulation (StreamSender -> RingBuffer -> StreamReceiver) on a
 // simulated clock, so minutes of drifting audio run in seconds.
 #include <das/audio/StreamSender.h>

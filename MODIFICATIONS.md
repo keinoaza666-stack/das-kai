@@ -1,12 +1,12 @@
 # Modifications
 
-Kinu Stream is a modified version of DawAudioStreamer by yoruhinot
+DAS Kai is a modified version of DawAudioStreamer by yoruhinot
 (https://github.com/yoruhinot/DawAudioStreamer), forked from commit
 `576c5b5c7fd395a3d4829a5708decd9b06301586` (release v0.4.5, 2026-10-14).
 AGPL-3.0 section 5(a) / GPL-3.0 section 5(a): this file records that the work
 was modified and when.
 
-## 2026-11-04 (Keinoaza) — Kinu Stream 0.1.0
+## 2026-11-04 (Keinoaza) — 0.1.0 (working name "Kinu Stream")
 
 - Renamed the product and every identifier so it installs next to
   DawAudioStreamer without sharing anything with it: plug-in name, vendor,
@@ -42,3 +42,12 @@ was modified and when.
   a new setting takes effect; "1 per user" instead of "1 per Mac".
 - Per-file modification notices, `libs/sync/LICENSE`, distribution notes in
   `LICENSE`; the plug-in no longer names the upstream URL as its website.
+
+## 2026-11-04 (Keinoaza) — renamed to DAS Kai
+
+- Product name changed from the working name "Kinu Stream" to "DAS Kai"
+  (plug-in, OBS source, bundle file names, OBS module `das-kai-obs`).
+  Internal identifiers keep the old working name so existing DAW projects and
+  OBS scenes stay attached (see dev-rules.md, rule 2).
+- Plug-in window: Japanese labels by default, switchable to English; the
+  choice is saved with the DAW project.

@@ -9,10 +9,10 @@ set(CMAKE_OSX_ARCHITECTURES arm64 CACHE STRING "Target architectures")
 
 # C is required: JUCE compiles a few C sources (SheenBidi) and the Makefile
 # generator does not enable it implicitly the way Xcode does.
-project(KinuStream VERSION 0.1.0 LANGUAGES C CXX)
+project(DasKai VERSION 0.1.0 LANGUAGES C CXX)
 
 if(NOT APPLE)
-  message(FATAL_ERROR "Kinu Stream is a macOS-only fork")
+  message(FATAL_ERROR "DAS Kai is a macOS-only fork")
 endif()
 
 set(DAS_COMPONENT_VERSION "${PROJECT_VERSION}" CACHE STRING

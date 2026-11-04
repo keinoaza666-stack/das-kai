@@ -1,4 +1,4 @@
-# Kinu Stream verify-map
+# DAS Kai verify-map
 
 ビルド手順・検証ポイント・既知の罠・外部依存の正本。コードの約束は `dev-rules.md`。
 
@@ -27,11 +27,11 @@ cd build/release && ctest
 | 時計情報の読み取り失敗 | `ctest -R sync`(clock read failure) | 1 回失敗しても切れ目 0・仕切り直し 0 |
 | 合計補正の上限 | `ctest -R sync`(offset ceiling) | 手動 1000ms を入れても合計 850ms で止まる |
 | 実際の VST3 | `ctest -R vst3_smoke` | 名前・ベンダー、バイパスで無音を送る、2個目は送らない、補正値の公開、受信側で音と時刻が届く |
-| VST3 規格 | `pluginval --strictness-level 5 --validate "<Kinu Stream.vst3>"` | SUCCESS |
+| VST3 規格 | `pluginval --strictness-level 5 --validate "<DAS Kai.vst3>"` | SUCCESS |
 | AU 規格 | `auval -v aufx Knst Kein` | AU VALIDATION SUCCEEDED |
 | 配布物の検査 | `check_release_bundle.py <bundle> --min-os 13.0 --version 0.1.0`(VST3/AU)。OBS 用は `otool -l` で minos と LC_RPATH を手で見る | 全項目 ok。OBS 用は LC_RPATH なし |
-| OBS の本物の音声エンジン | `build/release/tests/kinu_stream_obs_harness build/release/plugins/obs-source/kinu-stream-obs.plugin 120 1000 90` | ミックスの時刻の抜け 0、DAW時刻とのずれのぶれ 0.1ms 未満、最初と最後の差 0.2ms 未満、手動 +45ms が 45ms ±0.5 で効く |
-| 画面 | `gui_snap_window.py "<Kinu Stream.vst3>" docs/screenshots/editor-standalone.png` | 崩れなし(pedalboard は書き出し扱いなので状態は EXPORT と出る) |
+| OBS の本物の音声エンジン | `build/release/tests/das_kai_obs_harness build/release/plugins/obs-source/das-kai-obs.plugin 120 1000 90` | ミックスの時刻の抜け 0、DAW時刻とのずれのぶれ 0.1ms 未満、最初と最後の差 0.2ms 未満、手動 +45ms が 45ms ±0.5 で効く |
+| 画面と言語 | scratchpad の `snap_language.py`(pedalboard で開き、保存データの uiLanguage を書き換えて撮影)。`docs/screenshots/editor-ja.png`(既定)と `editor-en.png` | 既定は日本語、保存データに en があれば英語、読み込み後に保存し直したデータにも en が残る。崩れなし(pedalboard は書き出し扱いなので状態は「書き出し中」) |
 | 実 DAW と実 OBS | ユーザーの手元(Cubase + OBS) | 自動化できない。未検証の項目として報告する |
 
 ## 既知の罠
@@ -71,7 +71,7 @@ cd build/release && ctest
 - 配布物の検査: VST3/AU とも arm64・minos 13.0・相対 rpath のみ・個人情報なし・署名有効・版 0.1.0。OBS 用は arm64・minos 13.0・LC_RPATH なし
 - OBS 実エンジン(OBS.app 32.2.2 の libobs、2分、+1000ppm): `docs/obs-harness-120s-1000ppm-offset90s.txt` と `-offset60s.txt`。ミックスの時刻の抜け 0、DAW 時刻とのずれ 0.183 / 0.227ms(ぶれ最大 0.077 / 0.072ms)、最初と最後の差 0.017 / 0.092ms、手動 +45ms は -44.825(期待 -44.817)/ -44.766(期待 -44.773)ms。OBS ログ: 待ち時間 64ms → 切れ目 85ms を受理 → +42ms で 106ms
 - まとめ送り修正前の記録: `docs/obs-harness-120s-1000ppm-before-batch-fix.txt`(手動 +45ms が -23.523ms しか効かなかった)
-- 普段使いの OBS(32.2.2)の起動ログで `kinu-stream-obs` の読み込みを確認
+- 普段使いの OBS(32.2.2)の起動ログで `das-kai-obs` の読み込みを確認
 - 配置済みの SHA-256(先頭16桁): VST3 `cd850c7d08973e0d` / AU `a1ccf45c071d84df` / OBS `2b0534db1849efbd`
 - 未検証: Cubase と OBS での実際の配信・録画(音と映像の揃い方を含む)、ASIO-Guard 有効時の自動補正の量
 
@@ -83,4 +83,14 @@ cd build/release && ctest
 - pluginval strictness 5: SUCCESS。auval(配置後): SUCCEEDED。配布物の検査: VST3/AU 全項目 ok、OBS 用 arm64・minos 13.0・LC_RPATH なし
 - OBS 実エンジン 2分 +1000ppm(`docs/obs-harness-120s-1000ppm-offset90s.txt` を上書き): 時刻の抜け 0、ずれ 0.142ms(ぶれ最大 0.035ms)、最初 0.157 / 最後 0.135ms、手動 +45ms は -44.861ms(期待 -44.858ms)
 - 配置済みの SHA-256(先頭16桁): VST3 `1bb32010e8df1aba` / AU `c104a966e81e3a92` / OBS `bc607251af6047ba`
+- 未検証は前回と同じ(Cubase と OBS での実配信・録画、ASIO-Guard)
+
+### 記録 2026-11-04(0.1.0、DAS Kai へ改名・画面の日本語化)
+
+- 表示名を Kinu Stream → DAS Kai に変更(DAW の名前、OBS のソース名、バンドルのファイル名、OBS モジュール `das-kai-obs`、作業フォルダ `plugins_dev/das-kai`)。中身の識別子は変えていない(dev-rules 2)
+- 画面: 日本語が既定、右上で English に切り替え。選んだ言語はプロジェクトの保存データ(`uiLanguage`)に入る。保存データ経由の読み込みと再保存を pedalboard で確認
+- `ctest` 5/5、pluginval strictness 5 SUCCESS、auval SUCCEEDED(AudioUnit Name: DAS Kai)、配布物の検査 VST3/AU 全項目 ok、OBS 用 arm64・minos 13.0・LC_RPATH なし
+- OBS 実エンジン 20 秒 +1000ppm: 時刻の抜け 0、ずれ 0.135ms(ぶれ最大 0.006ms)、手動 +45ms は -44.832ms(期待 -44.865ms)。ソースは `kinu_stream_audio_source` のまま「DAS Kai」として作成
+- 旧名のバンドル 3 つ(Kinu Stream.vst3 / .component / kinu-stream-obs.plugin)はゴミ箱へ移動(同じ識別子のため)。普段使いの OBS 32.2.2 で `das-kai-obs` の読み込みと旧モジュールが無いことを確認
+- 配置済みの SHA-256(先頭16桁): VST3 `e08abba32a67ca95` / AU `7116337f54f7ef82` / OBS `5bb9a40881ee8478`
 - 未検証は前回と同じ(Cubase と OBS での実配信・録画、ASIO-Guard)

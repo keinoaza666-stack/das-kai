@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-// Modified for Kinu Stream (2026-11-04): timestamped transport with a clock
+// Modified for DAS Kai (2026-11-04): timestamped transport with a clock
 // model, latency compensation controls, macOS only. See MODIFICATIONS.md.
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
@@ -113,6 +113,14 @@ juce::AudioProcessorValueTreeState::ParameterLayout DasSendProcessor::createLayo
       juce::NormalisableRange<float>(kManualOffsetMinMs, kManualOffsetMaxMs, 0.1F), 0.0F,
       juce::AudioParameterFloatAttributes().withLabel("ms")));
   return layout;
+}
+
+bool DasSendProcessor::usesJapanese() const {
+  return parameters_.state.getProperty(kLanguageProperty, "ja").toString() != "en";
+}
+
+void DasSendProcessor::setUsesJapanese(const bool japanese) {
+  parameters_.state.setProperty(kLanguageProperty, japanese ? "ja" : "en", nullptr);
 }
 
 void DasSendProcessor::getStateInformation(juce::MemoryBlock& destination) {

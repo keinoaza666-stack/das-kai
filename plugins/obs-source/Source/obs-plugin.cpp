@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Modified for Kinu Stream (2026-11-04): reads through StreamReceiver
+// Modified for DAS Kai (2026-11-04): reads through StreamReceiver
 // (clock-drift absorption and DAW-time timestamps). See MODIFICATIONS.md.
 #include <das/sync/StreamReceiver.h>
 #include <das/transport/NamedSharedMemory.h>
@@ -23,9 +23,9 @@
 #include <vector>
 
 OBS_DECLARE_MODULE()
-OBS_MODULE_USE_DEFAULT_LOCALE("kinu-stream-obs", "en-US")
+OBS_MODULE_USE_DEFAULT_LOCALE("das-kai-obs", "en-US")
 MODULE_EXPORT const char* obs_module_description(void) {
-  return "Receives DAW audio from the Kinu Stream plug-in with clock-drift absorption and "
+  return "Receives DAW audio from the DAS Kai plug-in with clock-drift absorption and "
          "latency compensation";
 }
 
@@ -44,7 +44,7 @@ std::wstring mappingName() {
 }
 
 // One reader per OBS process: the ring has a single consumer, so several
-// Kinu Stream sources share one receiver and get the same audio and timestamps.
+// DAS Kai sources share one receiver and get the same audio and timestamps.
 class SharedReceiver final {
 public:
   void add(obs_source_t* source) {
@@ -107,7 +107,7 @@ private:
   }
 
   void run() {
-    os_set_thread_name("kinu-stream-receiver");
+    os_set_thread_name("das-kai-receiver");
     StreamReceiver::Block block;
     std::array<float, StreamReceiver::kMaximumPacketFrames> left {};
     std::array<float, StreamReceiver::kMaximumPacketFrames> right {};
@@ -158,24 +158,24 @@ SharedReceiver& receiver() {
   return instance;
 }
 
-struct KinuStreamSource final {
-  explicit KinuStreamSource(obs_source_t* owner) : source(owner) { receiver().add(source); }
-  ~KinuStreamSource() { receiver().remove(source); }
+struct DasKaiSource final {
+  explicit DasKaiSource(obs_source_t* owner) : source(owner) { receiver().add(source); }
+  ~DasKaiSource() { receiver().remove(source); }
 
   obs_source_t* source {};
 };
 
-const char* sourceName(void*) { return obs_module_text("KinuStreamSource"); }
+const char* sourceName(void*) { return obs_module_text("DasKaiSource"); }
 
 void* createSource(obs_data_t*, obs_source_t* source) {
   try {
-    return new KinuStreamSource(source);
+    return new DasKaiSource(source);
   } catch (...) {
     return nullptr;
   }
 }
 
-void destroySource(void* data) { delete static_cast<KinuStreamSource*>(data); }
+void destroySource(void* data) { delete static_cast<DasKaiSource*>(data); }
 
 obs_properties_t* sourceProperties(void*) {
   auto* properties = obs_properties_create();

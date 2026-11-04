@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Modified for Kinu Stream (2026-11-04): protocol v2 (own identifiers, always-write ring,
+// Modified for DAS Kai (2026-11-04): protocol v2 (own identifiers, always-write ring,
 // clock model, sync controls, consumer status). See MODIFICATIONS.md.
 #pragma once
 
@@ -11,7 +11,7 @@
 
 namespace das::transport {
 
-// Kinu Stream protocol. Deliberately different from upstream DawAudioStreamer
+// DAS Kai protocol. Deliberately different from upstream DawAudioStreamer
 // ("DSAS" v1) so both products can be installed side by side without either
 // one attaching to the other's shared memory.
 inline constexpr std::uint32_t kProtocolMagic = 0x4B535452; // "KSTR"

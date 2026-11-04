@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Modified for Kinu Stream (2026-11-04): own POSIX name prefix. See MODIFICATIONS.md.
+// Modified for DAS Kai (2026-11-04): own POSIX name prefix. See MODIFICATIONS.md.
 #include <das/transport/NamedSharedMemory.h>
 
 #include <cerrno>

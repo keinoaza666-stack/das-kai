@@ -1,4 +1,4 @@
-# Kinu Stream の開発ルール(設計の約束)
+# DAS Kai の開発ルール(設計の約束)
 
 コードを変える前に読むファイルです。ここには「守らないと別の所が壊れる約束」だけを書きます。ビルド手順・検証の記録・過去の経緯は `verify-map.md` に書きます。
 
@@ -14,6 +14,7 @@
 
 - 守ること: 識別子はすべて元と別の値を使う。プロトコルの印(`KSTR`)、共有メモリ名(`KinuStream.OBS.v2`、POSIX名の接頭辞 `/kst-`)、送信ロックのファイル名、OBSのソースID(`kinu_stream_audio_source`)、プラグインID(`Kein`/`Knst`)、バンドルID(`com.keinoaza.kinustream*`)
 - 必ず通す入口: `RingBuffer.h`、`NamedSharedMemory_posix.cpp`、`PluginProcessor.cpp`(`senderLockPath`)、`obs-plugin.cpp`、`plugins/*/CMakeLists.txt`
+- 表示名を変える時(2026-11-04 に Kinu Stream → DAS Kai)は、画面・DAW・OBS に出る名前とバンドルのファイル名だけを変える。上の識別子と、保存データの形式名(`"KinuStream"`、`PluginProcessor.cpp`)は旧仮称のまま変えない。変えると、すでに DAW のプロジェクトや OBS のシーンに入れたものが外れる
 - 破ると: 両方を入れたMacで、片方のOBSソースがもう片方の音を拾う、またはDAW側の「1台に1個」の判定が相手を巻き込む
 
 ## 3. 送信の処理は StreamSender だけに書く
@@ -32,7 +33,7 @@
 
 - 守ること: 手動補正・自動補正のオンオフ・待ち時間の変更・仕切り直しで時刻の並びが変わる時は、`needsTimestampBreak_` を立てる。受信側は、OBSが前の時刻の続きとみなせなくなるまで(差が80ミリ秒以上)出力を止め、再開の最初は3ブロック(1440サンプル)を1回で送る
 - 必ず通す入口: `StreamReceiver::poll` の末尾(時刻の切れ目とまとめ送りの処理)
-- 破ると: 70ミリ秒未満の変化はOBSに無視される(`TS_SMOOTHING_THRESHOLD`)。まとめ送りがないと、OBSが待ち時間を足さずに先頭を削り、補正が最大21ミリ秒足りなくなる(実エンジンで再現済み)。`sync` テストの「offset changes」と、`kinu_stream_obs_harness` の手動補正の行で分かる
+- 破ると: 70ミリ秒未満の変化はOBSに無視される(`TS_SMOOTHING_THRESHOLD`)。まとめ送りがないと、OBSが待ち時間を足さずに先頭を削り、補正が最大21ミリ秒足りなくなる(実エンジンで再現済み)。`sync` テストの「offset changes」と、`das_kai_obs_harness` の手動補正の行で分かる
 
 ## 6. 時計情報が読めないことと、送信側が止まったことを混ぜない
 
@@ -49,5 +50,5 @@
 ## 変更の進め方
 
 - 不具合を直す時は、直す前に失敗するテストを足す
-- コミットの前に、テスト全部(`ctest`)を流す。時刻やOBSの扱いに触れたら `kinu_stream_obs_harness` も流す
+- コミットの前に、テスト全部(`ctest`)を流す。時刻やOBSの扱いに触れたら `das_kai_obs_harness` も流す
 - 外部リポジトリのコード・依存を取り込む時は、`~/.claude/skills/_shared/external-code-intake.md` の安全確認を先に行い、判定を報告してから動かす。取り込んだものはコミットIDで固定する

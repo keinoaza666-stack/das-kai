@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-// Modified for Kinu Stream (2026-11-04): loads the built VST3, drives it in
+// Modified for DAS Kai (2026-11-04): loads the built VST3, drives it in
 // real time and receives its audio through StreamReceiver. See MODIFICATIONS.md.
 #include <das/sync/StreamReceiver.h>
 #include <das/transport/NamedSharedMemory.h>
@@ -40,7 +40,7 @@ int fail(const int code, const std::string& message) {
 
 int main(const int argc, char** argv) {
   juce::ScopedJuceInitialiser_GUI juce;
-  if (argc != 2) return fail(1, "usage: kinu_stream_vst3_smoke <Kinu Stream.vst3>");
+  if (argc != 2) return fail(1, "usage: das_kai_vst3_smoke <DAS Kai.vst3>");
 
   const auto suffix = std::string("vst3-smoke-") + std::to_string(static_cast<unsigned long long>(getpid()));
   setenv("KINU_STREAM_TEST_NAMESPACE", suffix.c_str(), 1);
@@ -60,8 +60,8 @@ int main(const int argc, char** argv) {
   juce::VST3PluginFormat format;
   juce::OwnedArray<juce::PluginDescription> descriptions;
   format.findAllTypesForFile(descriptions, juce::File(juce::String::fromUTF8(argv[1])).getFullPathName());
-  if (descriptions.size() != 1) return fail(4, "Kinu Stream VST3 not found");
-  if (descriptions[0]->name != "Kinu Stream" || descriptions[0]->manufacturerName != "Keinoaza")
+  if (descriptions.size() != 1) return fail(4, "DAS Kai VST3 not found");
+  if (descriptions[0]->name != "DAS Kai" || descriptions[0]->manufacturerName != "Keinoaza")
     return fail(4, "unexpected plug-in identity: " + descriptions[0]->name.toStdString() + " / " +
                        descriptions[0]->manufacturerName.toStdString());
 
