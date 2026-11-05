@@ -82,3 +82,12 @@ target_link_libraries(das_kai_live_monitor PRIVATE das_sync das_transport)
 # Not a ctest: replays a das_kai_live_monitor recording through the current code.
 add_executable(das_kai_replay_trace replay_trace.cpp)
 target_link_libraries(das_kai_replay_trace PRIVATE das_audio_core das_sync das_transport)
+
+# DAS Kai Setup.app: install / update / uninstall / rollback in a throw-away
+# home folder (built by the das_kai_setup target in the top-level CMakeLists).
+add_test(NAME setup COMMAND "${DAS_SETUP_TESTS}")
+# Promises that span files: Setup never asks for privileges or touches
+# security attributes, and every file names the same bundles and repository.
+add_test(NAME setup_contract
+         COMMAND "${CMAKE_COMMAND}" "-DROOT=${CMAKE_SOURCE_DIR}"
+                 -P "${CMAKE_CURRENT_SOURCE_DIR}/setup_contract.cmake")

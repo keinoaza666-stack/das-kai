@@ -10,17 +10,31 @@ DAWの音を、仮想オーディオデバイスなしでOBSに送るプラグ�
 
 ## 入れ方
 
-ビルドしてから、付属のスクリプトで入れます。入る場所はこのユーザーの3か所だけです。
+[リリースのページ](https://github.com/keinoaza666-stack/das-kai/releases)から `DAS-Kai-<版>-macOS-AppleSilicon.zip` をダウンロードし、中の Setup で入れます。ターミナルの操作も、管理者のパスワードも要りません。
 
-```bash
-scripts/install.sh
-```
+1. ZIP 全体を展開し、DAW と OBS を終了します。
+2. 「DAS Kai Setup.app」を開き、[インストール / 更新]を押します。
+3. 「インストール完了」と出たら、DAW と OBS を開き直します。
+
+入る場所は、このユーザーの3か所だけです。
 
 - `~/Library/Audio/Plug-Ins/VST3/DAS Kai.vst3`
 - `~/Library/Audio/Plug-Ins/Components/DAS Kai.component`
 - `~/Library/Application Support/obs-studio/plugins/das-kai-obs.plugin`
 
-元の DawAudioStreamer とは名前も中身の識別子も別なので、両方入れたままで構いません。
+更新は新しい ZIP の Setup で[インストール / 更新]、削除は[アンインストール…]を押します。入れ替えに失敗した時は、前の版に戻します。元の DawAudioStreamer とは名前も中身の識別子も別なので、両方入れたままで構いません。Setup は元の DawAudioStreamer のファイルには触りません。
+
+### macOS に止められた時
+
+DAS Kai は Apple の公証(Apple がアプリを検査して登録する手続き)を受けていないので、初めて Setup を開く時に macOS が止めます。一度開こうとした後、「システム設定」→「プライバシーとセキュリティ」の下の方にある「DAS Kai Setup」の横の[このまま開く]を押し、確認で[開く]を押します。DAW がプラグインを読み込む時に止められた場合も、同じ画面で通します。ZIP の中の「README_はじめにお読みください.txt」に、詳しい手順と、うまくいかない時の対処があります。
+
+### 自分でビルドして入れる時
+
+ビルドしてから(手順は `verify-map.md`)、付属のスクリプトで入れます。
+
+```bash
+scripts/install.sh
+```
 
 ## 使い方
 
@@ -75,4 +89,4 @@ scripts/install.sh
 
 ## 開発者向け
 
-ビルド手順・検証方法・既知の罠は `verify-map.md`、コードを変える時の約束は `dev-rules.md`、上流からの変更点は `MODIFICATIONS.md` にあります。ライセンスは `LICENSE` を参照してください(プラグイン本体は AGPL-3.0)。
+ビルド手順・配布用 ZIP の作り方・検証方法・既知の罠は `verify-map.md`、コードを変える時の約束は `dev-rules.md`、上流からの変更点は `MODIFICATIONS.md` にあります。ライセンスは `LICENSE` を参照してください(プラグイン本体は AGPL-3.0)。

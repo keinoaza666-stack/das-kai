@@ -13,6 +13,8 @@ cd build/release && ctest
 - 初回の configure で JUCE・r8brain・OBS ソース・SIMDe を GitHub から取得する(コミットID固定)。取得済みのものを使う時は `-DFETCHCONTENT_SOURCE_DIR_JUCE=<path>` などで指す
 - OBS 用プラグインは `/Applications/OBS.app` の libobs.framework にリンクする。OBS が入っていないとビルドできない
 - インストール: `scripts/install.sh`(削除 → コピー → 署名し直し、最後に SHA-256 を表示)
+- 配布用 ZIP: コミットして GitHub に送った後、`cmake --build build/release --target das_kai_package`。出力は `build/release/dist/DAS-Kai-<版>-macOS-AppleSilicon.zip` と `.sha256`。未コミットの変更があると止まる(試すだけなら環境変数 `DAS_ALLOW_UNCOMMITTED=1` で、名前に `-uncommitted` が付く)。最後に ZIP を展開し、中の Setup で入れる・入れ直す・消すを仮のホームで試す
+- 配布前チェック: `python3 ~/.claude/skills/audio-plugin-dev/scripts/check_release_bundle.py <zip> <payload の .vst3> <payload の .component> --min-os 13.0 --version <版> --forbid <個人のメールアドレス>`。OBS 用の `.plugin` はこの道具の対象外なので、`lipo -archs`・`otool -l`(minos・LC_RPATH)・個人情報の文字列・`codesign --verify`・版を手で見る
 
 ## 検証ポイント
 
@@ -35,6 +37,10 @@ cd build/release && ctest
 | 配布物の検査 | `check_release_bundle.py <bundle> --min-os 13.0 --version 0.1.0`(VST3/AU)。OBS 用は `otool -l` で minos と LC_RPATH を手で見る | 全項目 ok。OBS 用は LC_RPATH なし |
 | OBS の本物の音声エンジン | `build/release/tests/das_kai_obs_harness build/release/plugins/obs-source/das-kai-obs.plugin 120 1000 90` | ミックスの時刻の抜け 0、DAW時刻とのずれのぶれ 0.1ms 未満、最初と最後の差 0.2ms 未満、手動 +45ms が 45ms ±0.5 で効く |
 | 画面と言語 | scratchpad の `snap_language.py`(pedalboard で開き、保存データの uiLanguage を書き換えて撮影)。`docs/screenshots/editor-ja.png`(既定)と `editor-en.png` | 既定は日本語、保存データに en があれば英語、読み込み後に保存し直したデータにも en が残る。崩れなし(pedalboard は書き出し扱いなので状態は「書き出し中」) |
+| Setup の入れる・消す・巻き戻し | `ctest -R setup`(仮のホームで17項目。元の DawAudioStreamer のファイルと作業用フォルダーに触らないことを含む) | すべて PASS |
+| Setup の約束(名前・URL・権限) | `ctest -R setup_contract` | OK。壊した写しで、作業用フォルダー名・xattr・バンドル名・URL・元のサイトへのリンクをそれぞれ検出することを確認済み(2026-11-05) |
+| 配布用 ZIP | `das_kai_package`(展開した ZIP の中身で Setup の試験を流す)と配布前チェック | 全項目 ok、`__MACOSX` なし、SOURCE.txt が GitHub 上のコミットを指す |
+| 実際の Setup.app | 展開した ZIP の Setup.app を開き、[インストール / 更新]・[アンインストール…]・英語切替を押す(Setup.app の操作だけ許可をもらう) | 「インストール完了」、入ったものが payload と `diff -rq` で一致、署名 ok、`.daskai-setup-*` が残らない、DAS Send の SHA-256 が変わらない |
 | 実 DAW と実 OBS | ユーザーの手元(Cubase + OBS) | 自動化できない。未検証の項目として報告する |
 
 ## 既知の罠
@@ -49,6 +55,10 @@ cd build/release && ctest
 - **時計情報の読み取りは書き込みと競合して失敗することがある**(seqlock の再試行 16 回を使い切る。検品で 1 読みあたり約 5e-7〜3e-6 [推定])。失敗を「送信側が消えた」と扱うと約 86ms 途切れていた。直前の時計情報を使い、送信側の生存は書き込み位置の変化だけで判断する
 - **画面のフォントは macOS 標準のヒラギノ丸ゴ ProN と Menlo**(埋め込みなし)。丸ゴは W4 の1種類だけなので太字指定は効かない。明るい配色の確認は環境変数 `DAS_KAI_UI_THEME=light`(開発用)で撮る
 - **JUCE の Shift+ドラッグ微調整は `setVelocityModeParameters` の4番目を true にしないと効かない**(罠一覧の例が false だった。2026-11-04 に罠一覧を訂正)
+- **swiftc は `/usr/lib/swift` を絶対パスの rpath として入れる**: Setup.app のライブラリはすべて `/usr/lib/swift/...` の完全な場所で指定されていて使われないが、配布前チェックが不合格にする(上流の Setup.app にも入っている)。`-no-stdlib-rpath` で外す
+- **この Mac で作ったファイルには `com.apple.provenance` が付く**: `ditto -c -k --sequesterRsrc` で固めると、全ファイルに `__MACOSX/._*` が付く(上流は CI で作るので付かない)。`--norsrc --noextattr --noacl` で固める。署名は拡張属性に頼らないので、展開後の `codesign --verify` は通る
+- **ZIP の日本語ファイル名には UTF-8 の印(フラグ)が付かない**(`ditto` の仕様、上流も同じ)。Mac で展開すれば正しい名前になる。Windows で開くと文字化けしうるが、Mac 専用なので許容
+- **配布前チェックの道具は OBS 用の `.plugin` を調べない**: 手で見る(ビルドの節)
 - **OBS 用プラグインに絶対パスの rpath を入れない**: `SKIP_BUILD_RPATH ON`。`@rpath/libobs` は OBS.app 側の `@executable_path/../Frameworks` で解決される(上流の配布物と同じ)
 
 ## 外部依存
@@ -177,3 +187,19 @@ cd build/release && ctest
 - README に「クロックのずれが大きい時」を追加: 灰色の間は待つ / 落ち着いていて途切れなければ本当のずれ(外部クロック設定を確認)/ 上下する・途切れる・ログに段差や待ち時間の延長が続くなら読み違え → 無効化して戻す(バイパスでは合わせ直さない: `prepareToPlay` → `StreamSender::prepare` で推定を初期化するのは無効化から戻した時)、ASIO-Guard やドロップアウト保護を弱める、OBS のログと記録の道具で知らせる
 - 未確認: Cubase 15 / Studio One 6 の画面での設定の場所(Steinberg と PreSonus のヘルプの記載に基づく)、実 Cubase で無効化して戻した時の合わせ直し
 - 公開前の確認(2026-11-05): 全体の再ビルド直後の `ctest` で `vst3_smoke` が1回失敗した(出力を絞っていたため失敗の内容は取れていない)。その後は単独10回、全体1回(5/5)、CPU を8本の空回しで埋めた状態で5回、すべて合格。負荷下の時刻のずれは最大 8.6ms(合格の上限 15ms)。実時間で動かす試験なので、ビルド直後の負荷で上限を超えた可能性が高いが、原因は未特定。再発したら `--output-on-failure` で内容を取る
+
+### 記録 2026-11-05(Setup.app と配布用 ZIP)
+
+- 依頼: 「インストーラーがないから作って。本家のように簡単にインストールできるように」
+- 本家の方式: ZIP の中に Setup.app(Swift・AppKit)を入れる。ボタン1つで、ホームフォルダーの3か所に管理者権限なしで入れる。失敗した時は前の版に戻す。フォークした時に削っていたものを戻し、DAS Kai 用に改変した(変更点は MODIFICATIONS.md 2026-11-05、約束は dev-rules 11)
+- 本家から変えた点: バンドル名と文言、日本語を先に表示、ロックと作業用フォルダーの名前を本家と別にする、ヘルプのリンク先を DAS Kai のリポジトリにする。ZIP を作る手順は、Apple Silicon のみ・未コミットなら止める・JUCE が組み込むライブラリのライセンス文も入れる・拡張属性なしで固める・展開した ZIP で Setup の試験を流す、とした。swiftc には `-no-stdlib-rpath` を付けた
+- 確認の結果:
+  - `ctest` 7/7 合格。setup は17項目で、本家から引き継いだ16項目に「元の DawAudioStreamer のファイルと作業用フォルダーに触らない」を足した
+  - 契約の試験が本当に違反を見つけるかを、わざと壊した写しで確かめた。作業用フォルダー名・xattr・バンドル名・URL・元のサイトへのリンクの5通りをすべて検出し、壊していない写しは合格した。最初は URL を部分一致で見ていて `das-kai2` を見逃したので、URL の区切りまで見るように直した
+  - 試しの ZIP: 展開した中身で Setup の試験 17 項目と、実物の3つのバンドルでの入れる・入れ直す・消すが合格。配布前チェックは ZIP・VST3・AU のすべてで ok。最初は Setup.app の rpath `/usr/lib/swift` で不合格になったので、`-no-stdlib-rpath` で外した。OBS 用は手で見て ok(arm64、minos 13.0、rpath なし、個人情報 0、署名 ok、0.1.0)。`__MACOSX` は 0
+  - 実際の Setup.app: ZIP を展開して開き、Setup.app の操作だけ許可をもらって押した。インストールすると「インストール完了」と出て、入ったものが payload と `diff -rq` で一致し、署名 ok、作業用フォルダーは残らず、DAS Send の SHA-256 は変わらなかった。アンインストールすると DAS Kai の3つが消え、DAS Send は残った。英語に切り替えて入れ直すと、確認前と同じ SHA-256(VST3 49e7b660…、AU 7b0db6bd…、OBS 7abde3ef…)に戻った
+  - 画面で、手順2の「設定は不要です」が途中で折り返していたので、文を短くした
+- 未検証:
+  - ダウンロードした ZIP(隔離属性が付く)を開いた時に macOS に止められ、「このまま開く」で通す流れ。利用者の操作が要るので、ここでは試していない
+  - DAW が、隔離属性の付いたプラグインを読み込む時の動き。本家と同じ方式で、Setup は隔離属性に触らない
+  - OBS が起動している時に Setup が止める動き。OBS は起動していないので試していない

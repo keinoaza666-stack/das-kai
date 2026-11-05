@@ -73,6 +73,12 @@
 - 必ず通す入口: `tests/live_monitor.cpp`
 - 破ると: 模擬は自分が想定した呼び出し方しか試さない。2026-11-04 の不具合は、模擬・pluginval・OBS 実エンジンがすべて合格のまま、Cubase に挿すとすぐ出た
 
+## 11. Setup と配布用 ZIP は、名前・作業用フォルダー・権限の扱いをそろえる
+
+- 守ること: バンドルのファイル名を変えたら、`installer/macos/SetupCore.swift` の `components`、`cmake/CreateMacPackage.cmake`、`scripts/install.sh`、`installer/macos/README-macOS.txt`、`README.md` を同じコミットで変える。Setup の作業用フォルダー(`.daskai-setup-`)とロック(`com.keinoaza.daskai.setup-<uid>.lock`)は、元の DawAudioStreamer の Setup(`.das-setup-`、`org.dawaudiostreamer`)と別の名前にしておく。Setup は管理者権限を求めず、権限・隔離属性(quarantine)・Gatekeeper に触らない(macOS の確認は利用者が自分で通す)。配布用 ZIP は、コミットして GitHub に送ったソースから `das_kai_package` で作る
+- 必ず通す入口: `installer/macos/SetupCore.swift`、`cmake/CreateMacPackage.cmake`
+- 破ると: 名前がずれると、Setup が「ファイルが足りない」で止まるか、古い版を消せずに2つ並ぶ。作業用フォルダーの名前が同じだと、片方の Setup が失敗して残したフォルダーで、もう片方も動かなくなる。ZIP とコミットがずれると、SOURCE.txt が中身と違うソースを指す(AGPL/GPL の対応ソースにならない)。`ctest -R setup`(仮のホームでの入れる・消す・巻き戻し・元の Setup との共存)と `setup_contract`(名前・URL・権限の約束)、`das_kai_package` の最後の「展開した ZIP での試験」で分かる
+
 ## 変更の進め方
 
 - 不具合を直す時は、直す前に失敗するテストを足す

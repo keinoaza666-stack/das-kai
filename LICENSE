@@ -1,11 +1,11 @@
-Kinu Stream ライセンス概要
-==========================
+DAS Kai ライセンス概要
+======================
 
-Kinu Stream は DawAudioStreamer(https://github.com/yoruhinot/DawAudioStreamer)の
+DAS Kai(旧仮称 Kinu Stream)は DawAudioStreamer(https://github.com/yoruhinot/DawAudioStreamer)の
 改変版(フォーク)です。変更点と日付は MODIFICATIONS.md にあります。
 
 Copyright (c) 2026 yoruhinot(上流 DawAudioStreamer)
-Copyright (c) 2026 Keinoaza(Kinu Stream での変更・追加部分)
+Copyright (c) 2026 Keinoaza(DAS Kai での変更・追加部分)
 
 このリポジトリはコンポーネントごとに次のライセンスを使用します。
 
@@ -14,14 +14,18 @@ Copyright (c) 2026 Keinoaza(Kinu Stream での変更・追加部分)
 - `libs/audio-core`（追加した`StreamSender`を含む）、`tests/sync_tests.cpp`、
   `tests/obs_harness.cpp`：GNU General Public License version 3またはそれ以降
   （GPL-3.0-or-later）。r8brain部分は上流のMIT Licenseにも従います。
-- `libs/sync`（Kinu Streamで追加）：MIT License。`libs/sync/LICENSE`を参照してください。
+- `libs/sync`（DAS Kaiで追加）：MIT License。`libs/sync/LICENSE`を参照してください。
 - `plugins/obs-source`：GNU General Public License version 3またはそれ以降
   （GPL-3.0-or-later）。
 - `libs/transport`：MIT License。`libs/transport/LICENSE`を参照してください。
+- `installer/macos`(DAS Kai Setup.app)、`tests/setup_tests.swift`、`cmake/CreateMacPackage.cmake`：
+  上流のmacOS用セットアップを改変したもの。AGPL-3.0-only。
 
-このフォークは自分用で、配布物(インストーラーやZIP)を作りません。バイナリを人に渡す場合は、
-AGPL-3.0/GPL-3.0に従って改変後のソースを提供し、第三者のライセンス文(JUCE、VST3 SDK、
-r8brain、OBS、SIMDe)を同梱してください。
+配布用のZIP(DAS Kai Setup.app 入り)は GitHub のリリースで配ります。ZIP には、このファイル、
+ライセンス全文、変更点(MODIFICATIONS.md)、第三者のライセンス文(JUCE、VST3 SDK、r8brain、
+OBS、SIMDe)を licenses フォルダに入れ、対応するソースの場所(GitHub の該当コミット)を
+SOURCE.txt に書きます。ZIP は、コミットして GitHub に送ったソースから作ります
+(作り方は verify-map.md)。
 
 ライセンス全文：
 

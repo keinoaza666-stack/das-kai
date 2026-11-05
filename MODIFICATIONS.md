@@ -60,3 +60,33 @@ was modified and when.
 - Manual offset range -100..+100 ms in 0.1 ms steps; Shift-drag for fine
   adjustment now works (the swap-mode flag was off).
 - Wording: "timing compensation", "DAW audio earlier / later".
+
+## 2026-11-05 (Keinoaza) — clock estimator for hosts that process ahead
+
+- Clock estimator rebuilt: one point per segment of at least 250 ms, taken
+  from the median of the calls that start a burst; steps in the host's timing
+  move the line instead of tilting the slope; the slope is blended with a
+  prior and relearnt at the limit (Cubase with ASIO-Guard pinned the old
+  estimator at its +2004 ppm limit).
+- `StreamSender` starts a new epoch only when the model re-anchors.
+- `StreamReceiver`: producer timeout adapts to the host's write gaps; late
+  audio grows the delay only once newer audio confirms it.
+- OBS plug-in: rate-limited `[DAS Kai]` lines in the OBS log.
+- Plug-in window: clock drift coloured by range; "clock" wording.
+- Tests and tools: host call-pattern simulations, a real-time host, a live
+  monitor and a trace replayer.
+
+## 2026-11-05 (Keinoaza) — Setup app and distribution ZIP
+
+- Brought back upstream's macOS Setup app (`installer/macos`, removed at the
+  fork) and adapted it: DAS Kai bundle names and texts, Japanese first, its
+  own lock and work-folder names so it never blocks or is blocked by the
+  original DawAudioStreamer Setup, help links to the DAS Kai repository.
+- `cmake/CreateMacPackage.cmake` (from upstream's
+  `CreateMacPreviewPackage.cmake`): Apple Silicon only, takes the build
+  outputs directly, refuses uncommitted sources, adds the license texts of the
+  libraries JUCE embeds, zips without extended attributes, and runs Setup's
+  tests on the extracted ZIP.
+- Tests: upstream's Setup tests (`tests/setup_tests.swift`) plus a check that
+  the original's files and work folders are left alone, and
+  `tests/setup_contract.cmake`.

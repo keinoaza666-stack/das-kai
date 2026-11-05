@@ -97,6 +97,51 @@ if(DAS_BUILD_OBS_PLUGIN)
   add_subdirectory(plugins/obs-source)
 endif()
 
+# DAS Kai Setup.app (installer/macos) is Swift. The Makefile generator cannot
+# build Swift, so swiftc is called directly. The app is compiled here too so a
+# broken Setup fails the normal build, not only the packaging step.
+set(DAS_SETUP_DIR "${CMAKE_BINARY_DIR}/setup")
+set(DAS_SETUP_TESTS "${DAS_SETUP_DIR}/das_kai_setup_tests")
+set(DAS_SETUP_SOURCES
+    "${CMAKE_SOURCE_DIR}/installer/macos/SetupCore.swift"
+    "${CMAKE_SOURCE_DIR}/installer/macos/SetupApp.swift")
+add_custom_command(
+  OUTPUT "${DAS_SETUP_TESTS}" "${DAS_SETUP_DIR}/DASKaiSetup"
+  COMMAND "${CMAKE_COMMAND}" -E make_directory "${DAS_SETUP_DIR}"
+  COMMAND /usr/bin/xcrun swiftc -swift-version 5 -target arm64-apple-macosx13.0
+          "${CMAKE_SOURCE_DIR}/installer/macos/SetupCore.swift"
+          "${CMAKE_SOURCE_DIR}/tests/setup_tests.swift"
+          -o "${DAS_SETUP_TESTS}"
+  COMMAND /usr/bin/xcrun swiftc -swift-version 5 -no-stdlib-rpath
+          -target arm64-apple-macosx13.0
+          -framework AppKit ${DAS_SETUP_SOURCES} -o "${DAS_SETUP_DIR}/DASKaiSetup"
+  DEPENDS ${DAS_SETUP_SOURCES} "${CMAKE_SOURCE_DIR}/tests/setup_tests.swift"
+  COMMENT "Building DAS Kai Setup and its tests (Swift)"
+  VERBATIM)
+add_custom_target(das_kai_setup ALL DEPENDS "${DAS_SETUP_TESTS}")
+
+# Distribution ZIP for GitHub releases: cmake --build <dir> --target das_kai_package
+# Output: <build>/dist/DAS-Kai-<version>-macOS-AppleSilicon.zip (+ .sha256)
+if(DAS_BUILD_OBS_PLUGIN)
+  add_custom_target(das_kai_package
+    COMMAND "${CMAKE_COMMAND}"
+      "-DDAS_SOURCE_DIR=${CMAKE_SOURCE_DIR}"
+      "-DDAS_BINARY_DIR=${CMAKE_BINARY_DIR}"
+      "-DDAS_OUTPUT_DIR=${CMAKE_BINARY_DIR}/dist"
+      "-DDAS_VERSION=${PROJECT_VERSION}"
+      "-DDAS_VST3=$<TARGET_BUNDLE_DIR:DasKai_VST3>"
+      "-DDAS_AU=$<TARGET_BUNDLE_DIR:DasKai_AU>"
+      "-DDAS_OBS=$<TARGET_BUNDLE_DIR:das_kai_obs>"
+      "-DDAS_SETUP_TESTS=${DAS_SETUP_TESTS}"
+      "-DDAS_JUCE_DIR=${juce_SOURCE_DIR}"
+      "-DDAS_OBS_HEADERS_DIR=${obs_headers_SOURCE_DIR}"
+      "-DDAS_SIMDE_DIR=${simde_SOURCE_DIR}"
+      -P "${CMAKE_SOURCE_DIR}/cmake/CreateMacPackage.cmake"
+    DEPENDS DasKai_VST3 DasKai_AU das_kai_obs das_kai_setup
+    COMMENT "Creating the DAS Kai distribution ZIP"
+    VERBATIM)
+endif()
+
 if(DAS_BUILD_TESTS)
   enable_testing()
   add_subdirectory(tests)

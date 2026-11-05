@@ -1,6 +1,6 @@
 # 第三者ソフトウェアと権利表示
 
-> DAS Kai(このフォーク)について: 上流 DawAudioStreamer の表示をそのまま引き継いでいます。Windows版とインストーラーはこのフォークに含まれないため、Inno Setup の節は削除しました。下の「licenses フォルダへ収録」「インストーラーへ収録」は上流の配布物についての記述で、このフォークは配布物を作りません(配布する時の注意は `LICENSE`)。変更点は `MODIFICATIONS.md` を参照してください。
+> DAS Kai(このフォーク)について: 上流 DawAudioStreamer の表示をそのまま引き継いでいます。Windows版と Windows 用インストーラーはこのフォークに含まれないため、Inno Setup の節は削除しました。下の「licenses フォルダへ収録」「インストーラーへ収録」は上流の配布物についての記述です。このフォークの配布用ZIP(DAS Kai Setup.app 入り)も、JUCE(組み込まれた HarfBuzz・SheenBidi・libpng・IJG JPEG・zlib を含む)・VST3 SDK・r8brain・OBS・SIMDe のライセンス文を `licenses` フォルダに入れます(詳しくは `LICENSE`)。変更点は `MODIFICATIONS.md` を参照してください。
 
 配布ソースアーカイブには、バイナリのビルドに使用した次の固定revisionを収録します。
 
@@ -64,6 +64,8 @@ OBS、Discord、JUCE、VST、ASIO、Elgato、VB-Audioなどの名称および商
 ---
 
 # Third-Party Software and Attributions
+
+> About DAS Kai (this fork): the notices below are carried over from upstream DawAudioStreamer. The Windows version and its installer are not part of this fork, so the Inno Setup section was removed. Statements about what the installer and the `licenses` folder contain describe upstream's packages; DAS Kai's distribution ZIP (with DAS Kai Setup.app) also puts the JUCE (with HarfBuzz, SheenBidi, libpng, IJG JPEG and zlib), VST3 SDK, r8brain, OBS and SIMDe license texts in its `licenses` folder (see `LICENSE`). For the changes, see `MODIFICATIONS.md`.
 
 The distributed source archive includes the following pinned revisions used to build the binaries.
 
