@@ -14,6 +14,27 @@ set_target_properties(das_kai_obs PROPERTIES
   SKIP_BUILD_RPATH ON
 )
 
+if(WIN32)
+  # Windows (2026-11-05, from upstream): link against obs.dll through an import
+  # library made from obs-import.def; OBS loads the DLL from
+  # %ProgramData%\obs-studio\plugins\das-kai-obs\bin\64bit.
+  set(obs_import_library "${CMAKE_CURRENT_BINARY_DIR}/obs.lib")
+  add_custom_command(
+    OUTPUT "${obs_import_library}"
+    COMMAND "${CMAKE_AR}" /nologo /machine:x64
+            "/def:${CMAKE_CURRENT_SOURCE_DIR}/obs-import.def"
+            "/out:${obs_import_library}"
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/obs-import.def"
+    VERBATIM
+  )
+  add_custom_target(das_kai_obs_import_library DEPENDS "${obs_import_library}")
+  configure_file(Source/version.rc.in "${CMAKE_CURRENT_BINARY_DIR}/version.rc" @ONLY)
+  target_sources(das_kai_obs PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/version.rc")
+  add_dependencies(das_kai_obs das_kai_obs_import_library)
+  target_link_libraries(das_kai_obs PRIVATE "${obs_import_library}")
+  return()
+endif()
+
 set(DAS_OBS_FRAMEWORK_DIR "/Applications/OBS.app/Contents/Frameworks" CACHE PATH
     "Directory containing libobs.framework")
 find_library(DAS_OBS_LIBRARY NAMES libobs

@@ -1,3 +1,9 @@
+# AU exists only on macOS; Windows builds the VST3 alone.
+set(das_kai_formats VST3)
+if(APPLE)
+  list(APPEND das_kai_formats AU)
+endif()
+
 juce_add_plugin(DasKai
   PRODUCT_NAME "DAS Kai"
   VERSION "${DAS_COMPONENT_VERSION}"
@@ -5,7 +11,7 @@ juce_add_plugin(DasKai
   BUNDLE_ID "com.keinoaza.kinustream"
   PLUGIN_MANUFACTURER_CODE Kein
   PLUGIN_CODE Knst
-  FORMATS VST3 AU
+  FORMATS ${das_kai_formats}
   VST3_CATEGORIES Fx Tools
   AU_MAIN_TYPE kAudioUnitType_Effect
   VST3_AUTO_MANIFEST FALSE

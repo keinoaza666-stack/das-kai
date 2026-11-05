@@ -8,7 +8,11 @@ add_executable(das_transport_tests transport_tests.cpp)
 target_link_libraries(das_transport_tests PRIVATE das_transport Threads::Threads)
 add_test(NAME transport COMMAND das_transport_tests)
 
-add_executable(das_transport_ipc_tests transport_ipc_tests_posix.cpp)
+if(WIN32)
+  add_executable(das_transport_ipc_tests transport_ipc_tests_win.cpp)
+else()
+  add_executable(das_transport_ipc_tests transport_ipc_tests_posix.cpp)
+endif()
 target_link_libraries(das_transport_ipc_tests PRIVATE das_transport)
 add_test(NAME transport_ipc COMMAND das_transport_ipc_tests)
 set_tests_properties(transport_ipc PROPERTIES TIMEOUT 20)
@@ -32,10 +36,16 @@ target_link_libraries(das_kai_vst3_smoke PRIVATE
   juce::juce_audio_utils
 )
 add_dependencies(das_kai_vst3_smoke DasKai_VST3)
+if(WIN32)
+  target_link_libraries(das_kai_vst3_smoke PRIVATE winmm)
+endif()
 add_test(NAME vst3_smoke COMMAND das_kai_vst3_smoke
   "$<TARGET_FILE_DIR:DasKai_VST3>/../..")
 set_tests_properties(vst3_smoke PROPERTIES TIMEOUT 60)
 
+# macOS-only developer tools below (CoreAudio, screenshots, libobs from
+# OBS.app). Windows builds the tests above, the live monitor and the replayer.
+if(APPLE)
 # Not a ctest: runs the real VST3 from an audio device callback (see the file).
 juce_add_console_app(das_kai_realtime_host PRODUCT_NAME "DAS Kai Realtime Host")
 target_sources(das_kai_realtime_host PRIVATE realtime_host.cpp)
@@ -74,6 +84,7 @@ if(DAS_BUILD_OBS_PLUGIN)
     BUILD_RPATH "${DAS_OBS_FRAMEWORK_DIR}")
   add_dependencies(das_kai_obs_harness das_kai_obs)
 endif()
+endif() # APPLE
 
 # Not a ctest: attaches to the real ring while a real DAW plays (OBS closed).
 add_executable(das_kai_live_monitor live_monitor.cpp)
@@ -83,6 +94,7 @@ target_link_libraries(das_kai_live_monitor PRIVATE das_sync das_transport)
 add_executable(das_kai_replay_trace replay_trace.cpp)
 target_link_libraries(das_kai_replay_trace PRIVATE das_audio_core das_sync das_transport)
 
+if(APPLE)
 # DAS Kai Setup.app: install / update / uninstall / rollback in a throw-away
 # home folder (built by the das_kai_setup target in the top-level CMakeLists).
 add_test(NAME setup COMMAND "${DAS_SETUP_TESTS}")
@@ -91,3 +103,4 @@ add_test(NAME setup COMMAND "${DAS_SETUP_TESTS}")
 add_test(NAME setup_contract
          COMMAND "${CMAKE_COMMAND}" "-DROOT=${CMAKE_SOURCE_DIR}"
                  -P "${CMAKE_CURRENT_SOURCE_DIR}/setup_contract.cmake")
+endif() # APPLE

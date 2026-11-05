@@ -11,8 +11,15 @@ set(CMAKE_OSX_ARCHITECTURES arm64 CACHE STRING "Target architectures")
 # generator does not enable it implicitly the way Xcode does.
 project(DasKai VERSION 0.1.0 LANGUAGES C CXX)
 
-if(NOT APPLE)
-  message(FATAL_ERROR "DAS Kai is a macOS-only fork")
+if(NOT APPLE AND NOT WIN32)
+  message(FATAL_ERROR "DAS Kai builds on macOS and Windows only")
+endif()
+
+if(MSVC)
+  # Windows (2026-11-05, as upstream): the C++ runtime is linked into each
+  # binary, so the plug-ins need no Visual C++ Redistributable on the user's PC.
+  # Set before any target, JUCE's included.
+  set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 endif()
 
 set(DAS_COMPONENT_VERSION "${PROJECT_VERSION}" CACHE STRING
@@ -25,7 +32,12 @@ option(DAS_BUILD_OBS_PLUGIN "Build the OBS audio source plug-in" ON)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
-add_compile_options(-Wall -Wextra -Wpedantic)
+if(MSVC)
+  # /utf-8: the sources hold Japanese text in UTF-8 (upstream's flags).
+  add_compile_options(/W4 /permissive- /Zc:__cplusplus /utf-8)
+else()
+  add_compile_options(-Wall -Wextra -Wpedantic)
+endif()
 
 # Third-party sources are pinned to exact commits (checked 2026-11-04, see
 # verify-map.md). Prefer copies in third-party/ for offline rebuilds.
@@ -97,6 +109,7 @@ if(DAS_BUILD_OBS_PLUGIN)
   add_subdirectory(plugins/obs-source)
 endif()
 
+if(APPLE)
 # DAS Kai Setup.app (installer/macos) is Swift. The Makefile generator cannot
 # build Swift, so swiftc is called directly. The app is compiled here too so a
 # broken Setup fails the normal build, not only the packaging step.
@@ -140,6 +153,35 @@ if(DAS_BUILD_OBS_PLUGIN)
     DEPENDS DasKai_VST3 DasKai_AU das_kai_obs das_kai_setup
     COMMENT "Creating the DAS Kai distribution ZIP"
     VERBATIM)
+endif()
+endif() # APPLE
+
+# Windows installer (installer/windows/DASKai.iss, Inno Setup 6):
+#   cmake --build <dir> --config Release --target das_kai_package
+# Output: <build>/dist/DAS-Kai-<version>-Windows-x64-Setup.exe
+if(WIN32 AND DAS_BUILD_OBS_PLUGIN)
+  find_program(DAS_ISCC_EXECUTABLE ISCC.exe
+    HINTS "$ENV{LOCALAPPDATA}/Programs/Inno Setup 6"
+          "C:/Program Files (x86)/Inno Setup 6")
+  if(DAS_ISCC_EXECUTABLE)
+    add_custom_target(das_kai_package
+      COMMAND "${CMAKE_COMMAND}"
+        "-DDAS_SOURCE_DIR=${CMAKE_SOURCE_DIR}"
+        "-DDAS_OUTPUT_DIR=${CMAKE_BINARY_DIR}/dist"
+        "-DDAS_VERSION=${PROJECT_VERSION}"
+        "-DDAS_ISCC=${DAS_ISCC_EXECUTABLE}"
+        # Not a bundle target on Windows: the DLL sits in
+        # DAS Kai.vst3/Contents/x86_64-win, two folders below the bundle.
+        "-DDAS_VST3=$<TARGET_FILE_DIR:DasKai_VST3>/../.."
+        "-DDAS_OBS_DLL=$<TARGET_FILE:das_kai_obs>"
+        "-DDAS_JUCE_DIR=${juce_SOURCE_DIR}"
+        "-DDAS_OBS_HEADERS_DIR=${obs_headers_SOURCE_DIR}"
+        "-DDAS_SIMDE_DIR=${simde_SOURCE_DIR}"
+        -P "${CMAKE_SOURCE_DIR}/cmake/CreateWindowsInstaller.cmake"
+      DEPENDS DasKai_VST3 das_kai_obs
+      COMMENT "Creating the DAS Kai Windows installer"
+      VERBATIM)
+  endif()
 endif()
 
 if(DAS_BUILD_TESTS)

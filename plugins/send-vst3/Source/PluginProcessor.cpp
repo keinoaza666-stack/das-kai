@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Modified for DAS Kai (2026-11-04): timestamped transport with a clock
-// model, latency compensation controls, macOS only. See MODIFICATIONS.md.
+// model, latency compensation controls; macOS and Windows (2026-11-05).
+// See MODIFICATIONS.md.
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 
@@ -9,26 +10,47 @@
 #include <cstdlib>
 #include <cstring>
 #include <string>
-#include <time.h>
 
+#include <das/transport/MonotonicClock.h>
+
+#if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <Windows.h>
+#else
 #include <fcntl.h>
 #include <sys/file.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#endif
 
 namespace {
 constexpr auto kTestNamespaceVariable = "KINU_STREAM_TEST_NAMESPACE";
+using das::transport::monotonicNowNs;
 
 std::wstring namespacedName(const std::wstring_view base) {
   std::wstring name(base);
+#if defined(_WIN32)
+  // Read the process environment directly: with the static C runtime this
+  // DLL keeps its own copy of the C environment.
+  wchar_t suffix[128] {};
+  const auto length = GetEnvironmentVariableW(L"KINU_STREAM_TEST_NAMESPACE", suffix,
+                                               static_cast<DWORD>(std::size(suffix)));
+  if (length > 0 && length < std::size(suffix)) {
+    name.push_back(L'.');
+    name.append(suffix, length);
+  }
+#else
   if (const auto* suffix = std::getenv(kTestNamespaceVariable);
       suffix != nullptr && *suffix != '\0') {
     name.push_back(L'.');
     while (*suffix != '\0') name.push_back(static_cast<unsigned char>(*suffix++));
   }
+#endif
   return name;
 }
 
+#if !defined(_WIN32)
 std::string senderLockPath() {
   // The per-user temporary folder is private to this user, unlike /tmp, so no
   // other account can plant a link at the lock path.
@@ -52,11 +74,7 @@ std::string senderLockPath() {
   }
   return path;
 }
-
-std::int64_t monotonicNowNs() noexcept {
-  // Same clock as OBS's os_gettime_ns() on macOS.
-  return static_cast<std::int64_t>(clock_gettime_nsec_np(CLOCK_UPTIME_RAW));
-}
+#endif
 
 std::unique_ptr<das::transport::RingBuffer> prepareSharedRing(
     das::transport::NamedSharedMemory& memory, const std::wstring_view name,
@@ -85,6 +103,19 @@ DasSendProcessor::DasSendProcessor()
   autoCompensation_ = parameters_.getRawParameterValue(kAutoCompensationId);
   manualOffsetMs_ = parameters_.getRawParameterValue(kManualOffsetId);
 
+#if defined(_WIN32)
+  // A named event in this login session: the first instance creates it, a
+  // second one sees ERROR_ALREADY_EXISTS. The name differs from the original
+  // DawAudioStreamer's (dev-rules 2).
+  const auto guardName = namespacedName(L"Local\\KinuStream.Send.Owner.v1");
+  const auto guard = CreateEventW(nullptr, TRUE, FALSE, guardName.c_str());
+  if (guard != nullptr && GetLastError() == ERROR_ALREADY_EXISTS) {
+    primarySender_ = false;
+    CloseHandle(guard);
+  } else if (guard != nullptr) {
+    senderGuard_ = reinterpret_cast<std::intptr_t>(guard);
+  }
+#else
   const auto lockPath = senderLockPath();
   const auto guard = ::open(lockPath.c_str(), O_CREAT | O_RDWR | O_NOFOLLOW | O_CLOEXEC,
                             S_IRUSR | S_IWUSR);
@@ -94,14 +125,19 @@ DasSendProcessor::DasSendProcessor()
   } else {
     senderGuard_ = guard;
   }
+#endif
 }
 
 DasSendProcessor::~DasSendProcessor() {
   releaseResources();
+#if defined(_WIN32)
+  if (senderGuard_ != -1) CloseHandle(reinterpret_cast<HANDLE>(senderGuard_));
+#else
   if (senderGuard_ != -1) {
     static_cast<void>(flock(static_cast<int>(senderGuard_), LOCK_UN));
     ::close(static_cast<int>(senderGuard_));
   }
+#endif
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout DasSendProcessor::createLayout() {

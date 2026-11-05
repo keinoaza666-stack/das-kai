@@ -12,6 +12,7 @@
 // ("w,<uptime ns>,<write position>") and every clock change
 // ("c,<uptime ns>,<epoch>,<anchor frame>,<anchor ns>,<period ns>").
 #include <das/sync/StreamReceiver.h>
+#include <das/transport/MonotonicClock.h>
 #include <das/transport/NamedSharedMemory.h>
 #include <das/transport/RingBuffer.h>
 
@@ -27,9 +28,7 @@
 #include <thread>
 
 namespace {
-std::int64_t nowNs() {
-  return static_cast<std::int64_t>(clock_gettime_nsec_np(CLOCK_UPTIME_RAW));
-}
+std::int64_t nowNs() { return das::transport::monotonicNowNs(); }
 
 const char* eventName(const das::sync::StreamReceiver::Event event) {
   using Event = das::sync::StreamReceiver::Event;

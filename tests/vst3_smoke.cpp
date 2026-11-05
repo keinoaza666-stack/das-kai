@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Modified for DAS Kai (2026-11-04): loads the built VST3, drives it in
-// real time and receives its audio through StreamReceiver. See MODIFICATIONS.md.
+// real time and receives its audio through StreamReceiver. Runs on macOS and
+// Windows (2026-11-05). See MODIFICATIONS.md.
 #include <das/sync/StreamReceiver.h>
+#include <das/transport/MonotonicClock.h>
 #include <das/transport/NamedSharedMemory.h>
 #include <das/transport/RingBuffer.h>
 #include <juce_audio_processors/juce_audio_processors.h>
@@ -15,12 +17,35 @@
 #include <numbers>
 #include <string>
 #include <thread>
-#include <time.h>
-#include <unistd.h>
 #include <vector>
 
+#if defined(_WIN32)
+#include <process.h>
+// winmm, declared here so <Windows.h> does not meet the JUCE headers.
+extern "C" __declspec(dllimport) unsigned int __stdcall timeBeginPeriod(unsigned int);
+#else
+#include <unistd.h>
+#endif
+
 namespace {
-std::int64_t nowNs() { return static_cast<std::int64_t>(clock_gettime_nsec_np(CLOCK_UPTIME_RAW)); }
+std::int64_t nowNs() { return das::transport::monotonicNowNs(); }
+
+// The plug-in reads this to give its shared memory and lock test-only names.
+void setTestNamespace(const std::string& value) {
+#if defined(_WIN32)
+  _putenv_s("KINU_STREAM_TEST_NAMESPACE", value.c_str());
+#else
+  setenv("KINU_STREAM_TEST_NAMESPACE", value.c_str(), 1);
+#endif
+}
+
+unsigned long long processId() {
+#if defined(_WIN32)
+  return static_cast<unsigned long long>(_getpid());
+#else
+  return static_cast<unsigned long long>(getpid());
+#endif
+}
 
 // Hosted VST3 parameters are plain AudioProcessorParameters (normalised 0..1).
 juce::AudioProcessorParameter* findParameter(juce::AudioPluginInstance& plugin, const juce::String& name) {
@@ -41,9 +66,14 @@ int fail(const int code, const std::string& message) {
 int main(const int argc, char** argv) {
   juce::ScopedJuceInitialiser_GUI juce;
   if (argc != 2) return fail(1, "usage: das_kai_vst3_smoke <DAS Kai.vst3>");
+#if defined(_WIN32)
+  // The pacing loop below sleeps 0.5 ms; Windows' default 15.6 ms timer would
+  // turn that into bursts the test harness made, not the plug-in.
+  timeBeginPeriod(1);
+#endif
 
-  const auto suffix = std::string("vst3-smoke-") + std::to_string(static_cast<unsigned long long>(getpid()));
-  setenv("KINU_STREAM_TEST_NAMESPACE", suffix.c_str(), 1);
+  const auto suffix = std::string("vst3-smoke-") + std::to_string(processId());
+  setTestNamespace(suffix);
   const auto mapping = std::wstring(das::transport::kObsAudioMappingName) + L'.' +
                        std::wstring(suffix.begin(), suffix.end());
   const auto bytes = das::transport::requiredBytes(das::transport::kAudioCapacityFrames,

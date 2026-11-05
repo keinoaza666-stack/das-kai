@@ -1,0 +1,18 @@
+; The libobs functions das-kai-obs.dll calls. On Windows the plug-in links
+; against an import library made from this list (lib.exe /def), so the build
+; needs no OBS SDK; OBS's own obs.dll provides them at load time. Add a
+; function here when obs-plugin.cpp starts calling it, or the link fails.
+; Adapted from upstream DawAudioStreamer (2026-11-05): blog and
+; os_set_thread_name added for DAS Kai's log lines and receiver thread.
+LIBRARY obs
+EXPORTS
+  blog
+  obs_module_load_locale
+  obs_properties_add_text
+  obs_properties_create
+  obs_register_source_s
+  obs_source_output_audio
+  os_gettime_ns
+  os_set_thread_name
+  text_lookup_destroy
+  text_lookup_getstr

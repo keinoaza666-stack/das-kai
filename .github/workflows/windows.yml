@@ -1,0 +1,102 @@
+# Builds and checks DAS Kai for Windows on GitHub's Windows virtual machine:
+# builds the VST3 and the OBS plug-in, runs the tests, checks that neither
+# needs the Visual C++ runtime, runs pluginval, builds the installer and
+# checks it on a clean Windows (tools/windows/check-installer.ps1). The
+# installer that passed is kept as a workflow artifact. Adapted from
+# upstream's .github/workflows/windows.yml and Kinu Tune's workflows
+# (2026-11-05); actions are pinned to commit IDs.
+name: Windows
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build, test and package
+    runs-on: windows-2025
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Find Inno Setup
+        shell: pwsh
+        run: |
+          $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path -LiteralPath $iscc -PathType Leaf)) {
+            choco install innosetup --yes --no-progress | Out-Host
+          }
+          if (-not (Test-Path -LiteralPath $iscc -PathType Leaf)) { throw 'Inno Setup 6 is required' }
+          "ISCC=$iscc" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Configure
+        shell: pwsh
+        run: cmake -S . -B build -A x64 "-DDAS_ISCC_EXECUTABLE=$env:ISCC"
+
+      # The hosted runner has 4 CPUs; an unbounded build starts too many compilers.
+      - name: Build
+        run: cmake --build build --config Release --parallel 4
+
+      - name: Test
+        run: ctest --test-dir build -C Release --output-on-failure
+
+      # Static C++ runtime: the plug-ins must not import VCRUNTIME/MSVCP, and
+      # the OBS plug-in must import only obs.dll and Windows' own DLLs.
+      - name: Check the DLLs' imports
+        shell: pwsh
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $dumpbin = & $vswhere -latest -products * -find 'VC\Tools\MSVC\**\bin\Hostx64\x64\dumpbin.exe' | Select-Object -First 1
+          $vst3 = 'build\plugins\send-vst3\DasKai_artefacts\Release\VST3\DAS Kai.vst3\Contents\x86_64-win\DAS Kai.vst3'
+          $obs = 'build\plugins\obs-source\Release\das-kai-obs.dll'
+          $failed = $false
+          foreach ($dll in $vst3, $obs) {
+            $imports = & $dumpbin /nologo /dependents $dll | Where-Object { $_ -match '^\s+\S+\.dll\s*$' } | ForEach-Object { $_.Trim().ToLowerInvariant() }
+            Write-Host "$dll imports: $($imports -join ', ')"
+            if ($imports | Where-Object { $_ -match '^(vcruntime|msvcp|ucrtbase)' }) { Write-Host "  needs the Visual C++ runtime"; $failed = $true }
+          }
+          $obsImports = & $dumpbin /nologo /dependents $obs | Where-Object { $_ -match '^\s+\S+\.dll\s*$' } | ForEach-Object { $_.Trim().ToLowerInvariant() }
+          if (-not ($obsImports -contains 'obs.dll')) { Write-Host "  the OBS plug-in does not import obs.dll"; $failed = $true }
+          if ($failed) { exit 1 }
+
+      # pluginval 1.0.4, pinned by its SHA-256 (checked 2026-11-05).
+      - name: pluginval (strictness 5)
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri 'https://github.com/Tracktion/pluginval/releases/download/v1.0.4/pluginval_Windows.zip' -OutFile pluginval.zip
+          $hash = (Get-FileHash -Algorithm SHA256 pluginval.zip).Hash
+          if ($hash -ne 'C08E61CE3B96DB41636F8EC7E76F4C7E2C13EBDAC7FA1B5A1F52B4F32EC715AB') { throw "pluginval.zip hash mismatch: $hash" }
+          Expand-Archive pluginval.zip -DestinationPath pluginval
+          # pluginval.exe is a GUI-subsystem program: pipe it so PowerShell waits and keeps the exit code.
+          & .\pluginval\pluginval.exe --strictness-level 5 --skip-gui-tests --timeout-ms 600000 --validate 'build\plugins\send-vst3\DasKai_artefacts\Release\VST3\DAS Kai.vst3' 2>&1 | Out-Host
+          if ($LASTEXITCODE -ne 0) { throw "pluginval failed ($LASTEXITCODE)" }
+
+      - name: Build the installer
+        run: cmake --build build --config Release --target das_kai_package
+
+      - name: Check the installer on a clean Windows
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem build\dist\DAS-Kai-*-Windows-x64-Setup.exe | Select-Object -First 1
+          $smoke = Get-ChildItem build\tests\das_kai_vst3_smoke_artefacts\Release\*.exe | Select-Object -First 1
+          ./tools/windows/check-installer.ps1 -Setup $setup.FullName -SmokeTest $smoke.FullName
+
+      - name: Keep the checked installer
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: DAS-Kai-Windows-${{ github.sha }}
+          path: |
+            build/dist/DAS-Kai-*-Windows-x64-Setup.exe
+            build/dist/DAS-Kai-*-Windows-x64-Setup.sha256
+          if-no-files-found: error
+          retention-days: 14

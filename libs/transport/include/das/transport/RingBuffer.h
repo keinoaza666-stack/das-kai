@@ -26,7 +26,8 @@ inline constexpr std::wstring_view kObsAudioMappingName = L"Local\\KinuStream.OB
 inline constexpr std::uint64_t kFlagAutoCompensation = 1ULL << 0;
 
 // A linear model mapping ring frames to the monotonic clock shared by the DAW
-// plug-in and OBS (CLOCK_UPTIME_RAW on macOS):
+// plug-in and OBS (MonotonicClock.h: CLOCK_UPTIME_RAW on macOS, the
+// performance counter in nanoseconds on Windows, as OBS reads them):
 //   timeNs(frame) = anchorTimeNs + (frame - anchorFrame) * periodNs
 struct ClockSnapshot final {
   std::uint64_t epoch {};       // changes whenever the producer re-anchors

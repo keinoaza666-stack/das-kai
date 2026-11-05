@@ -11,11 +11,18 @@
 #include <functional>
 #include <memory>
 
-// Fonts are macOS system fonts, so nothing is embedded in the bundle.
-// Hiragino Maru Gothic ProN ships in a single weight (W4).
+// Fonts are the system's own, so nothing is embedded in the plug-in.
+// macOS: Hiragino Maru Gothic ProN (a single weight, W4) and Menlo.
+// Windows (2026-11-05): Yu Gothic UI and Consolas; JUCE falls back to
+// another installed font for any character they lack.
 namespace daskai::ui {
+#if defined(_WIN32)
+inline constexpr const char* kTextFont = "Yu Gothic UI";
+inline constexpr const char* kNumberFont = "Consolas";
+#else
 inline constexpr const char* kTextFont = "Hiragino Maru Gothic ProN";
 inline constexpr const char* kNumberFont = "Menlo";
+#endif
 
 class KaiLookAndFeel final : public juce::LookAndFeel_V4 {
 public:
