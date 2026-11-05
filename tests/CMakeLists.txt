@@ -86,6 +86,11 @@ if(DAS_BUILD_OBS_PLUGIN)
 endif()
 endif() # APPLE
 
+# The README's download links follow the project version (see the script).
+add_test(NAME readme_links
+         COMMAND "${CMAKE_COMMAND}" "-DROOT=${CMAKE_SOURCE_DIR}" "-DVERSION=${PROJECT_VERSION}"
+                 -P "${CMAKE_CURRENT_SOURCE_DIR}/readme_links.cmake")
+
 # Not a ctest: attaches to the real ring while a real DAW plays (OBS closed).
 add_executable(das_kai_live_monitor live_monitor.cpp)
 target_link_libraries(das_kai_live_monitor PRIVATE das_sync das_transport)

@@ -1,0 +1,23 @@
+# The README's download links must point at this version's release files, so
+# a version bump that forgets the README fails the tests. Run by ctest
+# (readme_links); ROOT is the source folder, VERSION the project version.
+cmake_minimum_required(VERSION 3.25)
+file(READ "${ROOT}/README.md" readme)
+set(base "https://github.com/keinoaza666-stack/das-kai/releases/download/v${VERSION}")
+set(missing "")
+foreach(name "DAS-Kai-${VERSION}-macOS-AppleSilicon.zip" "DAS-Kai-${VERSION}-Windows-x64-Setup.exe")
+  string(FIND "${readme}" "(${base}/${name})" found)
+  if(found EQUAL -1)
+    string(APPEND missing "  - ${base}/${name}\n")
+  endif()
+endforeach()
+string(REGEX MATCHALL "releases/download/v[0-9]+\\.[0-9]+\\.[0-9]+/" versions "${readme}")
+foreach(link IN LISTS versions)
+  if(NOT link STREQUAL "releases/download/v${VERSION}/")
+    string(APPEND missing "  - an old link: ${link}\n")
+  endif()
+endforeach()
+if(NOT missing STREQUAL "")
+  message(FATAL_ERROR "README.md download links do not match ${VERSION}:\n${missing}")
+endif()
+message(STATUS "README links: ${VERSION} OK")

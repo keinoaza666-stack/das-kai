@@ -14,6 +14,7 @@ cd build/release && ctest
 - OBS 用プラグインは `/Applications/OBS.app` の libobs.framework にリンクする。OBS が入っていないとビルドできない
 - インストール: `scripts/install.sh`(削除 → コピー → 署名し直し、最後に SHA-256 を表示)
 - 配布用 ZIP: コミットして GitHub に送った後、`cmake --build build/release --target das_kai_package`。出力は `build/release/dist/DAS-Kai-<版>-macOS-AppleSilicon.zip` と `.sha256`。未コミットの変更があると止まる(試すだけなら環境変数 `DAS_ALLOW_UNCOMMITTED=1` で、名前に `-uncommitted` が付く)。最後に ZIP を展開し、中の Setup で入れる・入れ直す・消すを仮のホームで試す
+- リリースの手順: `project(VERSION)` と README のダウンロードのリンクを同じコミットで上げる(`ctest -R readme_links` が見張る)→ GitHub に送る → Mac の ZIP は手元、Windows のインストーラーは GitHub Actions の成果物 → `gh release create v<版> --latest` に ZIP と Setup.exe の2つだけを載せる。`.sha256` は作られるが、リリースには載せない(2026-11-05 ユーザー指示「迷う。必要ないなら出す必要ない」)。説明文は初めての人向けに、何をするものか・どのファイルか・入れ方だけを書く(経緯や確認の記録は書かない)
 - 配布前チェック: `python3 ~/.claude/skills/audio-plugin-dev/scripts/check_release_bundle.py <zip> <payload の .vst3> <payload の .component> --min-os 13.0 --version <版> --forbid <個人のメールアドレス>`。OBS 用の `.plugin` はこの道具の対象外なので、`lipo -archs`・`otool -l`(minos・LC_RPATH)・個人情報の文字列・`codesign --verify`・版を手で見る
 
 ### Windows

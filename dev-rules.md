@@ -91,6 +91,12 @@
 - 必ず通す入口: `installer/windows/DASKai.iss`、`plugins/obs-source/obs-import.def`
 - 破ると: 一覧にない関数は Windows のリンクで止まる(Mac では止まらない)。場所がずれると、入れたのに見つからない・消し残る。GitHub Actions の Windows の確認(まっさらな Windows に入れて、読み込んで、消す)で分かる
 
+## 14. 版を上げる時は README のダウンロードのリンクも上げる
+
+- 守ること: README の冒頭のダウンロードのリンクは、版の番号入りのファイルを直接指す。`project(DasKai VERSION ...)` を変えたら、同じコミットで README のリンクも変える
+- 必ず通す入口: `README.md` の「ダウンロード」、`tests/readme_links.cmake`
+- 破ると: 新しい版を出しても、README から古い版が落ちてくる(ファイル名に版が入っているので、古いリンクもそのまま開けてしまい気づきにくい)。`ctest -R readme_links` で止まる
+
 ## 変更の進め方
 
 - 不具合を直す時は、直す前に失敗するテストを足す
