@@ -28,6 +28,11 @@ std::int64_t StreamReceiver::appliedOffsetNs() const noexcept {
   return std::min((autoCompensation_ ? delayNs_ : 0) + manualAppliedNs_, kMaximumAppliedOffsetNs);
 }
 
+double StreamReceiver::producerDriftPpm() const noexcept {
+  if (!haveLastClock_ || !(lastClock_.periodNs > 0.0)) return 0.0;
+  return ((1.0e9 / static_cast<double>(kSampleRate)) / lastClock_.periodNs - 1.0) * 1.0e6;
+}
+
 std::int64_t StreamReceiver::nextWakeNs(const std::int64_t nowNs) const noexcept {
   if (state_ == State::idle) return nowNs + 5'000'000;
   return std::max(nowNs, startNs_ + static_cast<std::int64_t>(blockIndex_) * kBlockNs);
@@ -45,6 +50,7 @@ void StreamReceiver::start(const std::int64_t nowNs, const transport::ClockSnaps
   position_ = clock.frameAt(nowNs - delayNs_);
   needsTimestampBreak_ = true;
   graceUntilNs_ = nowNs + kStartGraceNs;
+  lateSuspected_ = false;
   state_ = State::running;
 }
 
@@ -100,11 +106,20 @@ bool StreamReceiver::poll(const std::int64_t nowNs, Block& block) {
 
   const auto write = ring_.writePosition();
   if (write != lastWritePosition_) {
+    const auto gap = nowNs - lastWriteChangeNs_;
+    if (lastWriteChangeNs_ != 0 && gap < kMaximumWriteGapNs) {
+      // Remember the longest recent gap while the producer runs (a pause
+      // before it started is not its rhythm); it fades by a tenth of the
+      // time that passes, so a one-off hiccup is forgotten within seconds.
+      writeGapNs_ = std::max(gap, writeGapNs_ - gap / 10);
+    } else {
+      writeGapNs_ = 0;
+    }
     lastWritePosition_ = write;
     lastWriteChangeNs_ = nowNs;
   }
-  const auto producerAlive =
-      lastWriteChangeNs_ != 0 && nowNs - lastWriteChangeNs_ < kProducerTimeoutNs;
+  const auto producerAlive = lastWriteChangeNs_ != 0 &&
+                             nowNs - lastWriteChangeNs_ < std::max(kProducerTimeoutNs, 2 * writeGapNs_);
   transport::ClockSnapshot clock;
   auto hasClock = ring_.readClock(clock);
   if (hasClock) {
@@ -131,6 +146,7 @@ bool StreamReceiver::poll(const std::int64_t nowNs, Block& block) {
       return false;
     }
     start(nowNs, clock, control);
+    emit(Event::started, static_cast<double>(delayNs_) / 1.0e6);
   }
 
   auto dueNs = startNs_ + static_cast<std::int64_t>(blockIndex_) * kBlockNs;
@@ -139,12 +155,15 @@ bool StreamReceiver::poll(const std::int64_t nowNs, Block& block) {
   if (!hasClock || !producerAlive) {
     // The DAW stopped processing. Wait for it instead of growing the delay.
     state_ = State::idle;
+    lateSuspected_ = false;
+    emit(Event::stopped, 0.0);
     publishStatus();
     return false;
   }
 
   if (nowNs - dueNs > kStallResyncNs) {
     // This thread was starved; restart the block timeline at the present.
+    emit(Event::starved, static_cast<double>(nowNs - dueNs) / 1.0e6);
     startNs_ = nowNs;
     blockIndex_ = 0;
     dueNs = nowNs;
@@ -156,7 +175,25 @@ bool StreamReceiver::poll(const std::int64_t nowNs, Block& block) {
     epoch_ = clock.epoch;
     delayNs_ = initialDelay(control.leadNs);
     graceUntilNs_ = nowNs + kStartGraceNs;
+    lateSuspected_ = false;
     resync(dueNs, clock);
+    emit(Event::producerRestarted, 0.0);
+  }
+
+  if (lateSuspected_ && write != lateSuspectedWrite_) {
+    // Audio kept coming after we ran out: the producer is behind our read
+    // point, not stopping. Read further back from now on.
+    lateSuspected_ = false;
+    ++underruns_;
+    ++resyncs_;
+    constexpr std::int64_t millisecond = 1'000'000;
+    // How late the audio was: what was missing, or how long it took to come
+    // (a chunked host fills the gap in one write), whichever is more.
+    const auto late = std::max(lateShortfallNs_, nowNs - lateSuspectedAtNs_);
+    const auto growth = std::clamp((late + kDelayStepNs + millisecond - 1) / millisecond * millisecond,
+                                   kDelayStepNs, kMaximumDelayGrowthNs);
+    delayNs_ = std::min(delayNs_ + growth, kMaximumDelayNs);
+    emit(Event::lateAudio, static_cast<double>(delayNs_) / 1.0e6);
   }
 
   if (control.autoCompensation != autoCompensation_) {
@@ -174,6 +211,7 @@ bool StreamReceiver::poll(const std::int64_t nowNs, Block& block) {
   auto error = target - position_;
   if (std::abs(error) > kHardResyncFrames) {
     resync(dueNs, clock);
+    emit(Event::timingStep, error * 1000.0 / static_cast<double>(kSampleRate));
     error = 0.0;
   }
   const auto nominalStep = (1.0e9 / static_cast<double>(kSampleRate)) / clock.periodNs;
@@ -194,12 +232,15 @@ bool StreamReceiver::poll(const std::int64_t nowNs, Block& block) {
     // Only a producer that wrote recently is "behind"; one that stopped
     // writing (engine stopping, before the timeout above) is not a reason to
     // read further back.
-    const auto writingNow = nowNs - lastWriteChangeNs_ <= control.leadNs + kFreshWriteMarginNs;
-    if (nowNs >= graceUntilNs_ && writingNow) {
-      // The producer is alive but behind our read point: read further back.
-      ++underruns_;
-      ++resyncs_;
-      delayNs_ = std::min(delayNs_ + kDelayStepNs, kMaximumDelayNs);
+    const auto writingNow =
+        nowNs - lastWriteChangeNs_ <= std::max(control.leadNs, writeGapNs_) + kFreshWriteMarginNs;
+    // Late or stopping? Decide when (if) more audio arrives, below.
+    if (nowNs >= graceUntilNs_ && writingNow && !lateSuspected_) {
+      lateSuspected_ = true;
+      lateSuspectedWrite_ = write;
+      lateShortfallNs_ = static_cast<std::int64_t>(endNeeded - write) * 1'000'000'000LL /
+                         static_cast<std::int64_t>(kSampleRate);
+      lateSuspectedAtNs_ = nowNs;
     }
     skipBlock(dueNs, clock);
     publishStatus();
@@ -208,6 +249,7 @@ bool StreamReceiver::poll(const std::int64_t nowNs, Block& block) {
 
   if (!render(step)) {
     ++resyncs_;
+    emit(Event::readFailed, 0.0);
     skipBlock(dueNs, clock);
     publishStatus();
     return false;

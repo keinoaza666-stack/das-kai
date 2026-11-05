@@ -97,7 +97,71 @@ private:
       return false;
     }
     receiver_ = std::make_unique<StreamReceiver>(*ring_);
+    receiver_->setEventHandler(&SharedReceiver::onEvent, this);
     return true;
+  }
+
+  // Receiver events go to the OBS log (Help > Log Files), so a problem in a
+  // real session can be read back afterwards. At most kEventsPerMinute lines
+  // a minute; the rest is counted in the next status line.
+  static void onEvent(void* context, const StreamReceiver::Event event, const double valueMs) {
+    static_cast<SharedReceiver*>(context)->logEvent(event, valueMs);
+  }
+
+  void logEvent(const StreamReceiver::Event event, const double valueMs) {
+    using Event = StreamReceiver::Event;
+    if (eventsThisMinute_ >= kEventsPerMinute) {
+      ++suppressedEvents_;
+      return;
+    }
+    ++eventsThisMinute_;
+    const auto drift = receiver_->producerDriftPpm();
+    switch (event) {
+    case Event::started:
+      blog(LOG_INFO, "[DAS Kai] receiving: delay %.0f ms, DAW clock %+.1f ppm", valueMs, drift);
+      break;
+    case Event::stopped:
+      blog(LOG_INFO, "[DAS Kai] the DAW stopped sending");
+      break;
+    case Event::producerRestarted:
+      blog(LOG_INFO, "[DAS Kai] the DAW restarted its clock (engine restart, pause or export)");
+      break;
+    case Event::timingStep:
+      blog(LOG_INFO, "[DAS Kai] the DAW's timing stepped by %+.1f ms; output restarted (DAW clock %+.1f ppm)",
+           valueMs, drift);
+      break;
+    case Event::lateAudio:
+      blog(LOG_INFO, "[DAS Kai] DAW audio arrived late; waiting longer: delay %.0f ms", valueMs);
+      break;
+    case Event::starved:
+      blog(LOG_WARNING, "[DAS Kai] the receiver thread ran %.0f ms late", valueMs);
+      break;
+    case Event::readFailed:
+      blog(LOG_WARNING, "[DAS Kai] audio was overwritten before it could be read");
+      break;
+    }
+  }
+
+  void logStatus(const std::int64_t nowNs) {
+    if (nowNs - minuteStartNs_ < kStatusIntervalNs) return;
+    minuteStartNs_ = nowNs;
+    if (receiver_->state() != StreamReceiver::State::running) {
+      // Not receiving: only report what the rate limit kept out of the log.
+      if (suppressedEvents_ > 0)
+        blog(LOG_INFO, "[DAS Kai] %llu events were not logged in the last minute",
+             static_cast<unsigned long long>(suppressedEvents_));
+    } else {
+      blog(LOG_INFO,
+           "[DAS Kai] status: DAW clock %+.1f ppm, delay %.0f ms, shift %.1f ms, resyncs %llu, "
+           "late audio %llu, unlogged events %llu",
+           receiver_->producerDriftPpm(), static_cast<double>(receiver_->delayNs()) / 1.0e6,
+           static_cast<double>(receiver_->appliedOffsetNs()) / 1.0e6,
+           static_cast<unsigned long long>(receiver_->resyncs()),
+           static_cast<unsigned long long>(receiver_->underruns()),
+           static_cast<unsigned long long>(suppressedEvents_));
+    }
+    eventsThisMinute_ = 0;
+    suppressedEvents_ = 0;
   }
 
   void detach() {
@@ -118,6 +182,7 @@ private:
         continue;
       }
       const auto now = static_cast<std::int64_t>(os_gettime_ns());
+      logStatus(now);
       if (receiver_->poll(now, block)) {
         for (std::uint32_t frame = 0; frame < block.frames; ++frame) {
           left[frame] = block.samples[frame * 2];
@@ -151,6 +216,12 @@ private:
   std::unique_ptr<StreamReceiver> receiver_;
   std::atomic<bool> stopping_ {};
   std::thread worker_;
+  // Log rate limiting; touched only by the worker thread.
+  static constexpr int kEventsPerMinute = 20;
+  static constexpr std::int64_t kStatusIntervalNs = 60'000'000'000;
+  std::int64_t minuteStartNs_ {};
+  int eventsThisMinute_ {};
+  std::uint64_t suppressedEvents_ {};
 };
 
 SharedReceiver& receiver() {

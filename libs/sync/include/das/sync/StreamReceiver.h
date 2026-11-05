@@ -28,10 +28,13 @@ public:
   static constexpr std::int64_t kMinimumDelayNs = 15'000'000;
   static constexpr std::int64_t kDelayMarginNs = 8'000'000;
   static constexpr std::int64_t kDelayStepNs = 10'000'000;
+  static constexpr std::int64_t kMaximumDelayGrowthNs = 200'000'000;
   static constexpr std::int64_t kMaximumDelayNs = 400'000'000;
   // OBS smooths timestamp differences below 70 ms (TS_SMOOTHING_THRESHOLD).
   static constexpr std::int64_t kTimestampBreakNs = 80'000'000;
   static constexpr std::int64_t kProducerTimeoutNs = 200'000'000;
+  // Gaps up to this long count as the producer's rhythm, not as a pause.
+  static constexpr std::int64_t kMaximumWriteGapNs = 1'000'000'000;
   // A producer counts as actively writing if its last write is at most its
   // reported lead plus this margin ago.
   static constexpr std::int64_t kFreshWriteMarginNs = 20'000'000;
@@ -58,6 +61,18 @@ public:
 
   enum class State : std::uint8_t { idle, running };
 
+  // What the receiver did, for the host's log. Reported on the polling thread.
+  enum class Event : std::uint8_t {
+    started,           // value: delay in ms
+    stopped,           // the producer stopped writing
+    producerRestarted, // the DAW's clock restarted (engine restart, pause, export)
+    timingStep,        // the DAW's timing stepped; value: ms, positive = DAW ran ahead
+    lateAudio,         // audio arrived after the delay; value: the new delay in ms
+    starved,           // this thread was not scheduled in time; value: lateness in ms
+    readFailed,        // the ring no longer held the frames needed
+  };
+  using EventHandler = void (*)(void* context, Event event, double valueMs);
+
   struct Block final {
     std::array<float, kMaximumPacketFrames * 2> samples {}; // interleaved stereo
     std::uint32_t frames {};       // kBlockFrames, or a batch after a break
@@ -77,6 +92,13 @@ public:
   [[nodiscard]] std::uint64_t resyncs() const noexcept { return resyncs_; }
   [[nodiscard]] std::uint64_t underruns() const noexcept { return underruns_; }
   [[nodiscard]] double readPosition() const noexcept { return position_; }
+  // Speed of the DAW's clock against the system clock, from its latest model.
+  [[nodiscard]] double producerDriftPpm() const noexcept;
+
+  void setEventHandler(EventHandler handler, void* context) noexcept {
+    handler_ = handler;
+    handlerContext_ = context;
+  }
 
 private:
   void start(std::int64_t nowNs, const transport::ClockSnapshot& clock,
@@ -85,6 +107,9 @@ private:
   // Drops the block due at dueNs and aims the read position at the next one.
   void skipBlock(std::int64_t dueNs, const transport::ClockSnapshot& clock) noexcept;
   void publishStatus() noexcept;
+  void emit(Event event, double valueMs) const {
+    if (handler_ != nullptr) handler_(handlerContext_, event, valueMs);
+  }
   bool render(double step);
 
   transport::RingBuffer& ring_;
@@ -113,8 +138,25 @@ private:
   std::uint64_t lastTimestampNs_ {};
   std::uint64_t lastWritePosition_ {};
   std::int64_t lastWriteChangeNs_ {};
+  // Longest recent gap between the producer's writes. Hosts that process in
+  // bursts (ASIO-Guard) write far less often than once per block; a gap of
+  // that size is still "writing", not "stopped" (and with chunks over 200 ms
+  // apart, not even "gone": the timeout stretches to twice the gap).
+  std::int64_t writeGapNs_ {};
+  // We ran out of audio while the producer seemed to be writing. Whether it
+  // was late or is stopping shows only when (if) the next audio arrives.
+  bool lateSuspected_ {};
+  std::uint64_t lateSuspectedWrite_ {};
+  // How much audio was missing then (ns), and when. When the audio arrives,
+  // the delay grows by how late it was: the shortfall or the time we waited,
+  // whichever is more, plus kDelayStepNs (at most kMaximumDelayGrowthNs), so a
+  // host writing in large chunks settles in a break or two.
+  std::int64_t lateShortfallNs_ {};
+  std::int64_t lateSuspectedAtNs_ {};
   std::uint64_t resyncs_ {};
   std::uint64_t underruns_ {};
+  EventHandler handler_ {};
+  void* handlerContext_ {};
 };
 
 } // namespace das::sync

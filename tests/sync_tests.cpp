@@ -87,7 +87,8 @@ void testEstimator() {
     const auto frame = samples * 48000.0 / rate;
     if (clock.observe(frame, observed) == FrameClockEstimator::Update::anchored) ++anchors;
     if (block > 20 * 86) {
-      // Model time vs. true time plus the mean jitter (1.5 ms).
+      // The model follows the median call: true time plus the median jitter
+      // (1.5 ms).
       const auto modelTime = static_cast<double>(clock.anchorTimeNs()) +
                              (frame - clock.anchorFrame()) * clock.periodNs();
       worstTimeError = std::max(worstTimeError, std::abs(modelTime - (trueTime + 1.5e6)));
@@ -116,27 +117,48 @@ void testEstimator() {
     check(std::abs(preroll.driftPpm() - ppm) < 10.0, "pre-roll burst biased the clock estimate");
   }
 
-  // A single late block is ignored; a lasting jump re-anchors.
+  // A single late block does not move the model; a lasting jump moves the
+  // line (keeping the slope and the lock); a long gap re-anchors.
   auto frameAt = [](int block) { return block * 512.0 * 48000.0 / rate; };
+  // Same jitter as above, so the level the model follows does not change.
   auto timeAt = [&](int block) {
-    return static_cast<std::int64_t>(static_cast<double>(t0) + block * 512.0 / trueRate * 1.0e9 + 1.5e6);
+    return static_cast<std::int64_t>(static_cast<double>(t0) + block * 512.0 / trueRate * 1.0e9 + jitter(random));
+  };
+  auto modelError = [&](int block, double expectedOffsetNs) {
+    const auto modelTime = static_cast<double>(clock.anchorTimeNs()) +
+                           (frameAt(block) - clock.anchorFrame()) * clock.periodNs();
+    const auto trueTime = static_cast<double>(t0) + block * 512.0 / trueRate * 1.0e9;
+    return std::abs(modelTime - (trueTime + expectedOffsetNs));
   };
   auto block = 60 * 86 + 1;
-  check(clock.observe(frameAt(block), timeAt(block) + 60'000'000) ==
-            FrameClockEstimator::Update::ignored,
-        "a single 60 ms outlier must be ignored");
-  ++block;
-  check(clock.observe(frameAt(block), timeAt(block)) == FrameClockEstimator::Update::tracked,
-        "tracking must resume after an outlier");
-  FrameClockEstimator::Update last {};
-  for (int i = 0; i < FrameClockEstimator::kOutliersBeforeReanchor; ++i) {
-    ++block;
-    last = clock.observe(frameAt(block), timeAt(block) + 60'000'000);
+  const auto driftBefore = clock.driftPpm();
+  bool movedByOutlier {};
+  for (int i = 0; i < 2 * 86; ++i, ++block) {
+    const auto late = i == 20 ? 60'000'000 : 0;
+    const auto update = clock.observe(frameAt(block), timeAt(block) + late);
+    movedByOutlier |= update == FrameClockEstimator::Update::anchored ||
+                      update == FrameClockEstimator::Update::shifted;
   }
-  check(last == FrameClockEstimator::Update::anchored, "a lasting 60 ms jump must re-anchor");
-  check(clock.observe(frameAt(block + 1), timeAt(block + 1) + 400'000'000) ==
+  check(!movedByOutlier, "a single 60 ms late block must not shift or re-anchor the model");
+  check(modelError(block, 1.5e6) < 0.5e6, "a single late block moved the model");
+
+  int shiftedAfter = -1;
+  for (int i = 0; i < 3 * 86; ++i, ++block) {
+    const auto update = clock.observe(frameAt(block), timeAt(block) + 60'000'000);
+    check(update != FrameClockEstimator::Update::anchored, "a lasting 60 ms jump must not re-anchor");
+    if (update == FrameClockEstimator::Update::shifted && shiftedAfter < 0) shiftedAfter = i;
+  }
+  std::printf("estimator: 60 ms step absorbed after %d blocks (%.0f ms), step %.1f ms, drift %.2f ppm\n",
+              shiftedAfter, shiftedAfter * 512.0 / rate * 1000.0, clock.lastStepNs() / 1.0e6,
+              clock.driftPpm());
+  check(shiftedAfter >= 0 && shiftedAfter * 512.0 / rate < 1.6, "a lasting 60 ms jump must shift the line within 1.6 s");
+  check(clock.isLocked(), "a step must not drop the lock");
+  // Within the estimate's own noise at 3 ms of jitter.
+  check(std::abs(clock.driftPpm() - driftBefore) < 2.0, "a step must not change the drift estimate");
+  check(modelError(block, 61.5e6) < 0.5e6, "after a step the model must sit on the new level");
+  check(clock.observe(frameAt(block + 1), timeAt(block + 1) + 600'000'000) ==
             FrameClockEstimator::Update::anchored,
-        "a 400 ms gap must re-anchor immediately");
+        "a 600 ms gap must re-anchor immediately");
 }
 
 // ------------------------------------------------------------------ simulation
@@ -390,7 +412,7 @@ void testDriftAbsorption(const char* name, double dawRate, double ppm, std::size
   const auto all = errorStats(result, 10.0, seconds);
   std::printf("    timing error: mean %.3f ms (early %.3f, late %.3f), worst deviation %.3f ms\n",
               all.mean, early.mean, late.mean, all.worst);
-  const auto expected = jitterMs / 2.0; // timestamps carry the mean callback lateness
+  const auto expected = jitterMs / 2.0; // timestamps carry the median callback lateness
   check(result.breaks.empty(), std::string(name) + ": timestamps must stay continuous");
   check(result.underruns == 0 && result.resyncs == 0, std::string(name) + ": no underrun or resync");
   check(std::abs(all.mean - expected) < 0.4, std::string(name) + ": timestamps off from DAW time");
@@ -440,6 +462,9 @@ void testPause() {
   const auto after = errorStats(result, 60.0, 120.0);
   std::printf("    timing error: before %.3f, after %.3f ms\n", before.mean, after.mean);
   check(result.breaks.size() == 1, "engine pause: expected one timestamp break at resume");
+  // A stopping DAW writes nothing more; that is not late audio (an earlier
+  // receiver grew the delay by 180 ms before it noticed the stop).
+  check(result.underruns == 0, "engine pause: a stopping DAW must not count as late audio");
   check(std::abs(after.mean - before.mean) < 0.4, "engine pause: alignment must recover");
   check(after.worst < 0.5, "engine pause: timing must be stable after resume");
   // The first blocks after the engine stops look like a late producer and may
@@ -490,8 +515,287 @@ void testBursts() {
     if (entry.first > 90.0) ++lateBreaks;
   check(result.underruns <= 3, "late callbacks: too many underruns");
   check(lateBreaks == 0, "late callbacks: the delay must settle in the first half");
-  // 25 ms late callbacks need about 25 ms more delay: at most three 10 ms steps.
-  check(result.finalDelayMs <= result.initialDelayMs + 30.0, "late callbacks: delay grew too far");
+  // 25 ms late callbacks need about 25 ms more delay (plus one 10 ms step).
+  check(result.finalDelayMs <= result.initialDelayMs + 40.0, "late callbacks: delay grew too far");
+}
+
+// Host scheduling patterns: how the calls of a DAW relate to the hardware.
+// Cubase's ASIO-Guard processes ahead of the hardware in chunks, fills its
+// pre-fetch at start and may jump further ahead or fall back; none of that is
+// clock drift. The chunk sizes include ones whose period beats against the
+// estimator's segments (6 and 8 x 512, 4 x 2048), which broke an earlier
+// version, and chunks spanning more than the reset threshold.
+struct HostPattern {
+  const char* name {};
+  double rate {48000.0};
+  std::size_t block {256};
+  double ppm {-15.0};
+  int chunk {1};          // blocks processed back to back
+  double prefillMs {};    // the host runs this far ahead at start...
+  double prefillOverS {}; // ...reached gradually over this time (0 = at once)
+  double jumpMs {};       // extra audio processed at once and never played (re-render)...
+  double jumpEveryS {};   // ...this often
+  double stepAtS {-1.0};  // from then on the host calls stepMs later
+  double stepMs {};
+  double seconds {120.0};
+  // Patterns from the second review:
+  int chunkMax {};          // > chunk: each chunk has a random size in [chunk, chunkMax]
+  double chunkChangeAtS {-1.0}; // from then on chunks have chunkAfter blocks
+  int chunkAfter {1};
+  double earlyEveryS {};    // one block this often is called earlyMs early
+  double earlyMs {};
+  double switchEveryS {};   // the host alternates between real time and
+  double switchAheadMs {};  // running switchAheadMs ahead this often
+  double jitterToMs {-1.0}; // >= 0: jitter spreads both ways, from 0.5 ms wide
+                            // to this wide over the run
+};
+
+struct HostResult {
+  double finalPpm {};
+  bool finalLocked {};
+  double worstPpmError {}; // after the settle time, while locked
+  int unlockedSamples {};  // seconds after the settle time not locked
+  double maxShownPpm {};   // largest |ppm| ever shown as locked
+  int breaks {};
+  int breaksAfter30s {};
+  int epochs {};
+  double initialDelayMs {};
+  double finalDelayMs {};
+};
+
+HostResult simulateHost(const HostPattern& p, const double settleSeconds) {
+  HeapRing shared;
+  das::audio::StreamSender sender;
+  sender.prepare(p.rate, p.block, shared.ring.get());
+  das::sync::StreamReceiver receiver(*shared.ring);
+  constexpr std::int64_t t0 = 500'000'000'000'000;
+  const auto trueRate = p.rate * (1.0 + p.ppm * 1.0e-6);
+  const auto blockNs = static_cast<double>(p.block) / trueRate * 1.0e9;
+  std::mt19937 random(3);
+  std::uniform_real_distribution<double> unit(0.0, 1.0);
+  std::vector<float> silence(p.block, 0.0F);
+
+  // Called with consecutive indices; tracks the current chunk.
+  std::uint64_t chunkFirst {};
+  std::uint64_t chunkSize {};
+  auto nextEarly = p.earlyEveryS > 0.0 ? p.earlyEveryS : 1.0e9;
+  auto nextJump = p.jumpEveryS > 0.0 ? p.jumpEveryS : 1.0e9;
+  auto callTime = [&](const std::uint64_t index) {
+    if (index >= chunkFirst + chunkSize) {
+      chunkFirst = index;
+      const auto seconds = static_cast<double>(index) * blockNs / 1.0e9;
+      auto size = p.chunkChangeAtS >= 0.0 && seconds >= p.chunkChangeAtS ? p.chunkAfter : p.chunk;
+      if (p.chunkMax > p.chunk)
+        size = p.chunk + static_cast<int>(unit(random) * static_cast<double>(p.chunkMax - p.chunk + 1));
+      chunkSize = static_cast<std::uint64_t>(std::max(1, size));
+    }
+    // Re-rendered audio adds frames but no playout time; the calls keep
+    // their place relative to the hardware.
+    const auto playout = static_cast<double>(chunkFirst + 1) * blockNs;
+    const auto seconds = playout / 1.0e9;
+    auto ahead = p.prefillMs * 1.0e6;
+    if (p.prefillOverS > 0.0 && seconds < p.prefillOverS) ahead *= seconds / p.prefillOverS;
+    if (p.switchEveryS > 0.0 && static_cast<int>(seconds / p.switchEveryS) % 2 == 1) ahead += p.switchAheadMs * 1.0e6;
+    const auto late = p.stepAtS >= 0.0 && seconds >= p.stepAtS ? p.stepMs * 1.0e6 : 0.0;
+    double early {};
+    if (seconds >= nextEarly) {
+      early = p.earlyMs * 1.0e6;
+      nextEarly += p.earlyEveryS;
+    }
+    double jitterNs = unit(random) * 0.5e6;
+    if (p.jitterToMs >= 0.0) {
+      const auto width = (0.5 + (p.jitterToMs - 0.5) * std::min(1.0, seconds / p.seconds)) * 1.0e6;
+      jitterNs = (unit(random) - 0.5) * width;
+    }
+    return static_cast<std::int64_t>(static_cast<double>(t0) + playout - ahead + late - early +
+                                     static_cast<double>(index - chunkFirst) * 0.1e6 + jitterNs);
+  };
+
+  HostResult result;
+  std::uint64_t index {};
+  auto producerTime = callTime(0);
+  std::int64_t pollTime = t0;
+  const auto endTime = t0 + static_cast<std::int64_t>(p.seconds * 1.0e9);
+  das::sync::StreamReceiver::Block out;
+  bool emitted {};
+  std::uint64_t previousTs {};
+  std::uint32_t previousFrames {};
+  auto lastEpoch = sender.epoch();
+  double nextSample = 1.0;
+  while (pollTime < endTime) {
+    if (producerTime <= pollTime) {
+      if (static_cast<double>(producerTime - t0) / 1.0e9 >= nextJump) {
+        const auto frames = static_cast<std::size_t>(p.jumpMs * 1.0e-3 * p.rate);
+        for (std::size_t done = 0; done < frames; done += p.block)
+          sender.process(silence.data(), silence.data(), p.block, producerTime);
+        nextJump += p.jumpEveryS;
+      }
+      sender.process(silence.data(), silence.data(), p.block, producerTime);
+      if (sender.epoch() != lastEpoch) {
+        ++result.epochs;
+        lastEpoch = sender.epoch();
+      }
+      producerTime = callTime(++index);
+      continue;
+    }
+    while (receiver.poll(pollTime, out)) {
+      if (!emitted) result.initialDelayMs = static_cast<double>(receiver.delayNs()) / 1.0e6;
+      if (emitted && out.timestampNs != previousTs + previousFrames * 1'000'000'000ULL / 48000ULL) {
+        ++result.breaks;
+        if (static_cast<double>(pollTime - t0) / 1.0e9 > 30.0) ++result.breaksAfter30s;
+      }
+      previousTs = out.timestampNs;
+      previousFrames = out.frames;
+      emitted = true;
+    }
+    const auto seconds = static_cast<double>(pollTime - t0) / 1.0e9;
+    if (seconds >= nextSample) {
+      nextSample += 1.0;
+      if (sender.clockLocked()) {
+        result.maxShownPpm = std::max(result.maxShownPpm, std::abs(sender.driftPpm()));
+        if (seconds >= settleSeconds)
+          result.worstPpmError = std::max(result.worstPpmError, std::abs(sender.driftPpm() - p.ppm));
+      } else if (seconds >= settleSeconds) {
+        ++result.unlockedSamples;
+      }
+    }
+    pollTime += 1'000'000;
+  }
+  result.finalPpm = sender.driftPpm();
+  result.finalLocked = sender.clockLocked();
+  result.finalDelayMs = static_cast<double>(receiver.delayNs()) / 1.0e6;
+  return result;
+}
+
+void testHostPatterns() {
+  struct Case {
+    HostPattern pattern;
+    double maxPpmError;     // after settleSeconds, against the true drift
+    int maxBreaksAfter30s;  // chunked hosts may need 10 ms more delay at any time
+    int maxEpochs;          // the start counts as one
+    double settleSeconds {20.0};
+    double maxDelayGrowthMs {30.0};
+    int maxUnlockedSeconds {2};
+    bool mustLock {true};
+  };
+  using P = HostPattern;
+  const Case cases[] = {
+      {P {"real-time callbacks"}, 3.0, 0, 1},
+      {P {"chunks 4 x 256", 48000.0, 256, -15.0, 4}, 3.0, 1, 1},
+      {P {"chunks 6 x 512 @48k", 48000.0, 512, -15.0, 6}, 5.0, 1, 1, 30.0},
+      {P {"chunks 8 x 512 @48k", 48000.0, 512, -15.0, 8}, 5.0, 1, 1, 30.0},
+      {P {"chunks 6 x 512 @44.1k", 44100.0, 512, -15.0, 6}, 5.0, 1, 1, 30.0},
+      {P {"chunks 8 x 512 @44.1k", 44100.0, 512, -15.0, 8}, 5.0, 1, 1, 30.0},
+      {P {"chunks 6 x 512, -300 ppm", 48000.0, 512, -300.0, 6}, 5.0, 1, 1, 30.0},
+      {P {"chunks 6 x 512, +300 ppm", 48000.0, 512, 300.0, 6}, 5.0, 1, 1, 30.0},
+      {P {"chunks 6 x 1024 @96k", 96000.0, 1024, -15.0, 6}, 5.0, 1, 1, 30.0},
+      {P {"chunks 8 x 1024 @96k", 96000.0, 1024, -15.0, 8}, 5.0, 1, 1, 30.0},
+      {P {"chunks 4 x 2048 @48k, +300 ppm", 48000.0, 2048, 300.0, 4}, 10.0, 1, 1, 60.0},
+      {P {"chunks 4 x 2048 @44.1k, +300 ppm", 44100.0, 2048, 300.0, 4}, 10.0, 1, 1, 60.0},
+      {P {"chunks 8 x 1024 @48k", 48000.0, 1024, -15.0, 8}, 10.0, 1, 1, 60.0, 100.0},
+      // Chunks spanning more than the 150 ms reset threshold.
+      {P {"chunks 8 x 1024 @44.1k", 44100.0, 1024, -15.0, 8}, 10.0, 1, 2, 60.0, 120.0},
+      // 213 ms chunks: accurate, but the slope's error bar crosses the lock
+      // limit now and then (the display shows "locking" meanwhile).
+      {P {"chunks 5 x 2048 @48k", 48000.0, 2048, -15.0, 5}, 15.0, 1, 2, 60.0, 150.0, 30},
+      {P {"pre-fill 40 ms at once", 48000.0, 256, -15.0, 4, 40.0}, 3.0, 1, 1},
+      {P {"pre-fill 45 ms over 3 s", 44100.0, 512, 120.0, 4, 45.0, 3.0}, 10.0, 1, 1},
+      {P {"pre-fill 100 ms over 10 s", 48000.0, 256, -15.0, 4, 100.0, 10.0}, 10.0, 1, 3, 30.0},
+      // Re-rendered audio really is a discontinuity: about one break per jump.
+      {P {"re-render 20 ms every 10 s", 48000.0, 256, -15.0, 4, 0.0, 0.0, 20.0, 10.0}, 5.0, 20, 1},
+      // Known limit: steps every 3 s leave little undisturbed data; the
+      // estimate wanders up to about 24 ppm off (the audio breaks at every
+      // step anyway).
+      {P {"re-render 20 ms every 3 s", 48000.0, 256, -15.0, 4, 0.0, 0.0, 20.0, 3.0}, 25.0, 62, 1},
+      {P {"re-render 40 ms every 5 s", 48000.0, 256, -15.0, 4, 0.0, 0.0, 40.0, 5.0}, 10.0, 36, 1},
+      // Known limit, as the one above: up to about 26 ppm off.
+      {P {"chunks 8 x 1024 + re-render 20 ms / 3 s", 48000.0, 1024, -15.0, 8, 0.0, 0.0, 20.0, 3.0},
+       30.0, 62, 2, 60.0, 150.0, 1000, false},
+      // The host falls back (calls later) and stays there.
+      {P {"step 100 ms later at 40 s", 48000.0, 256, -15.0, 4, 0.0, 0.0, 0.0, 0.0, 40.0, 100.0},
+       5.0, 5, 1, 20.0, 130.0},
+      // A step keeps the delay that covered it (harmless: timestamps carry
+      // the delay, so placement does not change).
+      {P {"step 40 ms later at 40 s", 48000.0, 256, -15.0, 4, 0.0, 0.0, 0.0, 0.0, 40.0, 40.0},
+       5.0, 3, 1, 20.0, 60.0},
+      {P {"step 40 ms earlier at 40 s", 48000.0, 256, -15.0, 4, 0.0, 0.0, 0.0, 0.0, 40.0, -40.0},
+       5.0, 3, 1},
+      {P {"step 1.9 ms later at 40 s", 48000.0, 256, -15.0, 1, 0.0, 0.0, 0.0, 0.0, 40.0, 1.9},
+       10.0, 1, 1},
+  };
+  // Second review. Irregular chunk sizes reproduce the Cubase symptom with
+  // the first version (+2004 ppm, a re-anchor every 0.1 s).
+  auto irregular = [](const char* name, std::size_t block, int low, int high, double ppm) {
+    P p {name, 48000.0, block, ppm, low};
+    p.chunkMax = high;
+    p.seconds = 180.0;
+    return p;
+  };
+  auto earlyCalls = [](const char* name, double everyS, double ms) {
+    P p {name, 48000.0, 512, -15.0, 6};
+    p.earlyEveryS = everyS;
+    p.earlyMs = ms;
+    p.seconds = 180.0;
+    return p;
+  };
+  auto switching = [](const char* name, double everyS, double aheadMs) {
+    P p {name, 48000.0, 256, -15.0, 4};
+    p.switchEveryS = everyS;
+    p.switchAheadMs = aheadMs;
+    p.seconds = 150.0;
+    return p;
+  };
+  auto prefillDrift = [](const char* name, double ppm) {
+    return P {name, 48000.0, 256, ppm, 4, 100.0, 10.0};
+  };
+  P chunkChange {"chunks 8 -> 2 x 512 at 60 s", 48000.0, 512, -15.0, 8};
+  chunkChange.chunkChangeAtS = 60.0;
+  chunkChange.chunkAfter = 2;
+  P widening {"jitter both ways 0.5 -> 2 ms", 48000.0, 256, 25.0, 1};
+  widening.jitterToMs = 2.0;
+  widening.seconds = 180.0;
+  const Case reviewCases[] = {
+      {irregular("irregular chunks 2..6 x 256", 256, 2, 6, -15.0), 10.0, 1, 1, 60.0, 30.0, 10},
+      {irregular("irregular chunks 1..8 x 512", 512, 1, 8, -15.0), 10.0, 1, 1, 90.0, 30.0, 30},
+      {irregular("irregular chunks 1..16 x 512", 512, 1, 16, -15.0), 15.0, 1, 1, 120.0, 30.0, 60},
+      {irregular("irregular chunks 1..8 x 512, +80 ppm", 512, 1, 8, 80.0), 10.0, 1, 1, 90.0, 30.0, 30},
+      {earlyCalls("one call 50 ms early every 10 s", 10.0, 50.0), 5.0, 1, 1, 30.0},
+      {earlyCalls("one call 20 ms early every 10 s", 10.0, 20.0), 5.0, 1, 1, 30.0},
+      {earlyCalls("one call 5 ms early every 2 s", 2.0, 5.0), 5.0, 1, 1, 30.0},
+      {prefillDrift("pre-fill 100 ms over 10 s, -80 ppm", -80.0), 10.0, 1, 1, 30.0},
+      {prefillDrift("pre-fill 100 ms over 10 s, +60 ppm", 60.0), 10.0, 1, 1, 30.0},
+      // A path switch moves the host's timing: about one break each.
+      {switching("switch real time / 40 ms ahead every 7 s", 7.0, 40.0), 10.0, 40, 1, 30.0, 60.0, 20},
+      {switching("switch real time / 40 ms ahead every 20 s", 20.0, 40.0), 10.0, 14, 1, 30.0, 60.0},
+      {chunkChange, 5.0, 3, 1, 30.0, 120.0},
+      {widening, 25.0, 0, 1, 30.0},
+  };
+
+  std::vector<Case> all(std::begin(cases), std::end(cases));
+  all.insert(all.end(), std::begin(reviewCases), std::end(reviewCases));
+  for (const auto& entry : all) {
+    const auto result = simulateHost(entry.pattern, entry.settleSeconds);
+    std::printf("[host: %s] drift %.1f ppm (true %.0f, %s), worst after %.0f s %.1f, unlocked %d s, "
+                "shown max %.0f, breaks %d (after 30 s %d), epochs %d, delay %.0f->%.0f ms\n",
+                entry.pattern.name, result.finalPpm, entry.pattern.ppm,
+                result.finalLocked ? "locked" : "NOT LOCKED", entry.settleSeconds, result.worstPpmError,
+                result.unlockedSamples, result.maxShownPpm, result.breaks, result.breaksAfter30s,
+                result.epochs, result.initialDelayMs, result.finalDelayMs);
+    const std::string name = std::string("host ") + entry.pattern.name;
+    check(result.finalLocked || !entry.mustLock, name + ": the clock must end up locked");
+    check(std::abs(result.finalPpm - entry.pattern.ppm) <= entry.maxPpmError, name + ": final drift estimate off");
+    check(result.worstPpmError <= entry.maxPpmError, name + ": drift estimate pulled by host timing");
+    check(result.unlockedSamples <= entry.maxUnlockedSeconds, name + ": the clock keeps losing its lock");
+    check(result.maxShownPpm <= std::abs(entry.pattern.ppm) + 150.0,
+          name + ": a wrong value was shown as locked");
+    check(result.breaksAfter30s <= entry.maxBreaksAfter30s, name + ": OBS output keeps breaking");
+    check(result.epochs <= entry.maxEpochs, name + ": host timing restarted the clock");
+    // A chunked host needs its whole chunk of delay; anything beyond stayed grown.
+    const auto chunkMs = static_cast<double>(entry.pattern.chunk) * static_cast<double>(entry.pattern.block) /
+                         entry.pattern.rate * 1000.0;
+    check(result.finalDelayMs <= result.initialDelayMs + std::max(entry.maxDelayGrowthMs, chunkMs + 30.0),
+          name + ": the receiver delay stayed grown");
+  }
 }
 
 } // namespace
@@ -506,6 +810,7 @@ int main() {
   testClockReadFailure();
   testOffsetCeiling();
   testBursts();
+  testHostPatterns();
   if (failures == 0) std::printf("all sync tests passed\n");
   return failures == 0 ? 0 : 1;
 }

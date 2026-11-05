@@ -62,6 +62,10 @@ private:
   [[nodiscard]] juce::String text(const char* japanese, const char* english) const;
   void updateStatus(const juce::String& text, VisualState state);
   [[nodiscard]] juce::Colour colourFor(VisualState state) const;
+  // Green within the normal range, yellow beyond it, red past what the OBS
+  // side can follow smoothly.
+  [[nodiscard]] juce::Colour clockColour(double ppm) const;
+  void layoutClock();
 
   // Declared first so it outlives every child that uses it.
   daskai::ui::KaiLookAndFeel lookAndFeel_;
@@ -74,7 +78,8 @@ private:
   juce::Label subtitle_;
   juce::Label obsTitle_;
   juce::Label obsStatus_;
-  juce::Label clockInfo_;
+  juce::Label clockInfo_;  // "クロックのずれ" / "クロックを合わせています…"
+  juce::Label clockValue_; // the reading, coloured
   juce::Label syncTitle_;
   juce::Label syncTotal_;
   juce::Label syncDirection_;

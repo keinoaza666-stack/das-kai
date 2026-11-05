@@ -1,19 +1,21 @@
 sender: drift estimate 999.9 ppm (true 1000), lead 30.4 ms
 mix callbacks 5620 (silent 24), timestamp gaps 0
-timing error (mix time - DAW time): 0.142 ms, worst deviation 0.035 ms
-drift over the run: first 20 s 0.157 ms, last 20 s before offset 0.135 ms
-after +45 ms manual offset: -44.861 ms (expected -44.858), worst deviation 0.004 ms
-worst 1 kHz continuity residual 5.38e-05 at 0.78 s
-libobs log lines of interest: 6
+timing error (mix time - DAW time): 0.151 ms, worst deviation 0.028 ms
+drift over the run: first 20 s 0.158 ms, last 20 s before offset 0.149 ms
+after +45 ms manual offset: -44.847 ms (expected -44.849), worst deviation 0.001 ms
+worst 1 kHz continuity residual 4.16e-05 at 1.33 s
+libobs log lines of interest: 8
   | audio settings reset:
 	samples per sec: 48000
 	speakers:        2
 	max buffering:   960 milliseconds
 	buffering type:  dynamically increasing
-  | Loading module: kinu-stream-obs
-  | source 'Kinu Stream' (kinu_stream_audio_source) created
-  | adding 64 milliseconds of audio buffering, total audio buffering is now 64 milliseconds (source: Kinu Stream)
+  | Loading module: das-kai-obs
+  | source 'DAS Kai' (kinu_stream_audio_source) created
+  | [DAS Kai] receiving: delay 49 ms, DAW clock +0.0 ppm
+  | adding 64 milliseconds of audio buffering, total audio buffering is now 64 milliseconds (source: DAS Kai)
 
-  | Audio timestamp for 'Kinu Stream' exceeded TS_SMOOTHING_THRESHOLD, diff=85000000 ns, expected 54994897987291, input 54994982987291
-  | adding 42 milliseconds of audio buffering, total audio buffering is now 106 milliseconds (source: Kinu Stream)
+  | [DAS Kai] status: DAW clock +999.9 ppm, delay 49 ms, shift 49.0 ms, resyncs 0, late audio 0, unlogged events 0
+  | Audio timestamp for 'DAS Kai' exceeded TS_SMOOTHING_THRESHOLD, diff=85000000 ns, expected 87715577017125, input 87715662017125
+  | adding 42 milliseconds of audio buffering, total audio buffering is now 106 milliseconds (source: DAS Kai)
 

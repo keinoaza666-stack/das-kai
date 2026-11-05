@@ -30,7 +30,18 @@ struct Theme {
   juce::Colour warningIcon;
   juce::Colour error;
   juce::Colour errorIcon;
+  // Clock reading: normal, beyond normal, beyond what OBS follows smoothly.
+  juce::Colour clockGood;
+  juce::Colour clockCaution;
+  juce::Colour clockBad;
 };
+
+// An audio interface normally runs within this of the Mac's clock (tens of
+// ppm are common).
+constexpr double kClockNormalPpm = 100.0;
+// Rare for a real clock; a reading this far from a normal clock is an error
+// the receiver's residual correction (300 ppm) cannot absorb, so OBS breaks.
+constexpr double kClockAbnormalPpm = das::sync::StreamReceiver::kMaximumCorrection * 1.0e6;
 
 Theme themeFor(const bool darkMode) {
   if (darkMode) {
@@ -38,13 +49,15 @@ Theme themeFor(const bool darkMode) {
             juce::Colour(0xff8fa199), juce::Colour(0xff27302c), juce::Colour(0xff26302c),
             juce::Colour(0xff36c2a0), juce::Colour(0xff222a27), juce::Colour(0xff1f8f74),
             juce::Colour(0xff5fd8b9), juce::Colour(0xffe0a43a), juce::Colour(0xffe0a43a),
-            juce::Colour(0xffd9534f), juce::Colour(0xffff8a80)};
+            juce::Colour(0xffd9534f), juce::Colour(0xffff8a80), juce::Colour(0xff58d68d),
+            juce::Colour(0xffefcf4f), juce::Colour(0xffff6b63)};
   }
   return {juce::Colour(0xffeef3f1), juce::Colour(0xfffafcfb), juce::Colour(0xff142019),
           juce::Colour(0xff5d7068), juce::Colour(0xffc9d6d0), juce::Colour(0xffdbe5e0),
           juce::Colour(0xff1e9e80), juce::Colour(0xffdde7e2), juce::Colour(0xff1e8a70),
           juce::Colour(0xff1e8a70), juce::Colour(0xffe0a43a), juce::Colour(0xffa8721f),
-          juce::Colour(0xffd9534f), juce::Colour(0xffc0392b)};
+          juce::Colour(0xffd9534f), juce::Colour(0xffc0392b), juce::Colour(0xff1e8a4c),
+          juce::Colour(0xff9a7400), juce::Colour(0xffc0392b)};
 }
 
 bool resolveDarkMode() {
@@ -200,7 +213,7 @@ DasSendEditor::DasSendEditor(DasSendProcessor& processor)
 
   syncTotal_.setFont(numberFont(30.0F, true));
   addAndMakeVisible(syncTotal_);
-  for (auto* small : {&clockInfo_, &syncDirection_, &syncBreakdown_, &detail_}) {
+  for (auto* small : {&clockInfo_, &clockValue_, &syncDirection_, &syncBreakdown_, &detail_}) {
     small->setFont(textFont(12.0F));
     addAndMakeVisible(*small);
   }
@@ -251,6 +264,23 @@ juce::Colour DasSendEditor::colourFor(const VisualState state) const {
     case VisualState::error: return theme.errorIcon;
   }
   return theme.muted;
+}
+
+juce::Colour DasSendEditor::clockColour(const double ppm) const {
+  const auto theme = themeFor(darkMode_);
+  const auto size = std::abs(ppm);
+  if (size <= kClockNormalPpm) return theme.clockGood;
+  if (size <= kClockAbnormalPpm) return theme.clockCaution;
+  return theme.clockBad;
+}
+
+void DasSendEditor::layoutClock() {
+  // The reading follows the caption, whose width depends on the language.
+  const auto border = clockInfo_.getBorderSize();
+  const auto width = static_cast<int>(std::ceil(
+      juce::GlyphArrangement::getStringWidth(clockInfo_.getFont(), clockInfo_.getText())));
+  clockInfo_.setBounds(42, 168, width + border.getLeftAndRight(), 24);
+  clockValue_.setBounds(clockInfo_.getRight() + 4, 168, 120, 24);
 }
 
 juce::String DasSendEditor::text(const char* japanese, const char* english) const {
@@ -340,7 +370,7 @@ void DasSendEditor::resized() {
 
   obsTitle_.setBounds(108, 94, 168, 22);
   obsStatus_.setBounds(119, 117, 144, 38);
-  clockInfo_.setBounds(42, 168, 250, 24);
+  layoutClock();
 
   syncTitle_.setBounds(338, 92, 200, 20);
   syncTotal_.setBounds(336, 110, 250, 40);
@@ -387,11 +417,20 @@ void DasSendEditor::timerCallback() {
                     juce::dontSendNotification);
   }
 
-  const auto ppm = juce::roundToInt(processor_.clockDriftPpm());
-  clockInfo_.setText(processor_.clockLocked()
-                         ? text("時計のずれ  ", "CLOCK  ") + juce::String(ppm >= 0 ? "+" : "") + juce::String(ppm) + " ppm"
-                         : text("時計を合わせています…", "CLOCK  locking..."),
-                     juce::dontSendNotification);
+  // Development override for screenshots of each colour: show this reading.
+  const auto* preview = std::getenv("DAS_KAI_UI_PREVIEW_PPM");
+  const auto locked = preview != nullptr || processor_.clockLocked();
+  const auto drift = preview != nullptr ? std::atof(preview) : processor_.clockDriftPpm();
+  const auto ppm = juce::roundToInt(drift);
+  const auto caption = locked ? text("クロックのずれ", "CLOCK") : text("クロックを合わせています…", "CLOCK  locking...");
+  if (clockInfo_.getText() != caption) {
+    clockInfo_.setText(caption, juce::dontSendNotification);
+    layoutClock();
+  }
+  clockValue_.setText(locked ? juce::String(ppm >= 0 ? "+" : "") + juce::String(ppm) + " ppm" : juce::String(),
+                      juce::dontSendNotification);
+  // Judged on the number shown, so +100 is never yellow.
+  clockValue_.setColour(juce::Label::textColourId, clockColour(static_cast<double>(ppm)));
 
   const auto autoOn = processor_.parameters()
                           .getRawParameterValue(DasSendProcessor::kAutoCompensationId)

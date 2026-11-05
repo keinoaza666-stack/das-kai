@@ -36,6 +36,19 @@ add_test(NAME vst3_smoke COMMAND das_kai_vst3_smoke
   "$<TARGET_FILE_DIR:DasKai_VST3>/../..")
 set_tests_properties(vst3_smoke PROPERTIES TIMEOUT 60)
 
+# Not a ctest: runs the real VST3 from an audio device callback (see the file).
+juce_add_console_app(das_kai_realtime_host PRODUCT_NAME "DAS Kai Realtime Host")
+target_sources(das_kai_realtime_host PRIVATE realtime_host.cpp)
+target_compile_definitions(das_kai_realtime_host PRIVATE
+  JUCE_PLUGINHOST_VST3=1
+  JUCE_WEB_BROWSER=0
+  JUCE_USE_CURL=0
+)
+target_link_libraries(das_kai_realtime_host PRIVATE
+  juce::juce_audio_processors
+  juce::juce_audio_devices
+)
+
 juce_add_gui_app(das_kai_editor_host PRODUCT_NAME "DAS Kai UI Test")
 target_sources(das_kai_editor_host PRIVATE vst3_editor_host.cpp)
 target_compile_definitions(das_kai_editor_host PRIVATE
@@ -61,3 +74,11 @@ if(DAS_BUILD_OBS_PLUGIN)
     BUILD_RPATH "${DAS_OBS_FRAMEWORK_DIR}")
   add_dependencies(das_kai_obs_harness das_kai_obs)
 endif()
+
+# Not a ctest: attaches to the real ring while a real DAW plays (OBS closed).
+add_executable(das_kai_live_monitor live_monitor.cpp)
+target_link_libraries(das_kai_live_monitor PRIVATE das_sync das_transport)
+
+# Not a ctest: replays a das_kai_live_monitor recording through the current code.
+add_executable(das_kai_replay_trace replay_trace.cpp)
+target_link_libraries(das_kai_replay_trace PRIVATE das_audio_core das_sync das_transport)

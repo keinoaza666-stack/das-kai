@@ -91,6 +91,7 @@ void StreamSender::process(const float* const left, const float* const right,
     needsReanchor_ = false;
   }
   const auto update = clock_.observe(frame, nowNs);
+  // A new epoch tells the consumer to restart; steps only move the line.
   if (update == sync::FrameClockEstimator::Update::anchored) ++epoch_;
   if (update != sync::FrameClockEstimator::Update::ignored)
     ring_->publishClock({epoch_, clock_.anchorFrame(), clock_.anchorTimeNs(), clock_.periodNs()});
