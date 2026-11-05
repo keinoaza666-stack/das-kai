@@ -23,6 +23,9 @@ New-Item -ItemType Directory -Path $stage | Out-Null
 Copy-Item $Setup (Join-Path $stage "setup.exe")
 Copy-Item $SmokeTest (Join-Path $stage "vst3_smoke.exe")
 
+# The script that runs inside the container. Written with a BOM: the container
+# runs Windows PowerShell 5.1, which reads a UTF-8 file without one as the ANSI
+# code page and breaks on the Japanese file name below.
 @'
 $ErrorActionPreference = "Stop"
 $failures = @()
@@ -81,7 +84,7 @@ if ($failures.Count -gt 0) {
 }
 Write-Host "Installer check passed."
 exit 0
-'@ | Set-Content -Encoding utf8 (Join-Path $stage "in-container.ps1")
+'@ | Set-Content -Encoding utf8BOM (Join-Path $stage "in-container.ps1")
 
 # Process isolation needs the container's Windows build to match the runner's.
 # The full "server" image: JUCE plug-ins link Direct2D, which Server Core lacks.
