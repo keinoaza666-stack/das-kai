@@ -76,6 +76,10 @@ cmake --build build --config Release --target das_kai_package
 - **この Mac で作ったファイルには `com.apple.provenance` が付く**: `ditto -c -k --sequesterRsrc` で固めると、全ファイルに `__MACOSX/._*` が付く(上流は CI で作るので付かない)。`--norsrc --noextattr --noacl` で固める。署名は拡張属性に頼らないので、展開後の `codesign --verify` は通る
 - **ZIP の日本語ファイル名には UTF-8 の印(フラグ)が付かない**(`ditto` の仕様、上流も同じ)。Mac で展開すれば正しい名前になる。Windows で開くと文字化けしうるが、Mac 専用なので許容
 - **配布前チェックの道具は OBS 用の `.plugin` を調べない**: 手で見る(ビルドの節)
+- **Windows では OBS の `util/threading.h` が OBS 専用の `pthread.h`(deps/w32-pthreads)を求める**: OBS 用プラグインが使うのは `os_set_thread_name` だけなので、Windows ではヘッダーを読まずにその関数だけを宣言する(`obs-import.def` にも載せる)
+- **まっさらな Windows のコンテナーは Windows PowerShell 5.1**: BOM のない UTF-8 のスクリプトを ANSI として読み、日本語が化けて構文が壊れる。コンテナーで動かすスクリプトは `utf8BOM` で書き出す
+- **GitHub の Windows ランナーで Docker が動いていないことがある**(同じ版のイメージで、動いた回と動かない回があった)。確認の前に `Start-Service docker` して、応答するまで待つ。まっさらな Windows のイメージ(`windows/server:ltsc2025`)の取得は約 11 分かかる
+- **配布物を作る段階は、コミットにないファイルがあると止まる**(SOURCE.txt とずらさないため)。CI でダウンロードするもの(pluginval など)は `RUNNER_TEMP` に置き、ソースのフォルダーに置かない
 - **OBS 用プラグインに絶対パスの rpath を入れない**: `SKIP_BUILD_RPATH ON`。`@rpath/libobs` は OBS.app 側の `@executable_path/../Frameworks` で解決される(上流の配布物と同じ)
 
 ## 外部依存
@@ -217,6 +221,26 @@ cmake --build build --config Release --target das_kai_package
   - 実際の Setup.app: ZIP を展開して開き、Setup.app の操作だけ許可をもらって押した。インストールすると「インストール完了」と出て、入ったものが payload と `diff -rq` で一致し、署名 ok、作業用フォルダーは残らず、DAS Send の SHA-256 は変わらなかった。アンインストールすると DAS Kai の3つが消え、DAS Send は残った。英語に切り替えて入れ直すと、確認前と同じ SHA-256(VST3 49e7b660…、AU 7b0db6bd…、OBS 7abde3ef…)に戻った
   - 画面で、手順2の「設定は不要です」が途中で折り返していたので、文を短くした
 - 未検証:
-  - ダウンロードした ZIP(隔離属性が付く)を開いた時に macOS に止められ、「このまま開く」で通す流れ。利用者の操作が要るので、ここでは試していない
-  - DAW が、隔離属性の付いたプラグインを読み込む時の動き。本家と同じ方式で、Setup は隔離属性に触らない
+  - ダウンロードした ZIP(隔離属性が付く)を開いた時に macOS に止められ、「このまま開く」で通す流れ。利用者の操作が要るので、ここでは試していない → 同日確認済み(下の「Windows 版・Mac のダウンロード後の確認」)
+  - DAW が、隔離属性の付いたプラグインを読み込む時の動き。本家と同じ方式で、Setup は隔離属性に触らない → 同日確認済み(macOS 26 では止められない)
   - OBS が起動している時に Setup が止める動き。OBS は起動していないので試していない
+
+### 記録 2026-11-05(Windows 版・Mac のダウンロード後の確認)
+
+- 依頼: 「Windows 版はない？」「Kinu Tune は仮想で動作確認した。同じ方式でいいし、インストーラーも作れるでしょ」。あわせて「なんで Mac でインストールできるか試さない？」
+- Windows 版: フォークした時に削った Windows 用の部分のうち必要なものを本家から戻し、DAS Kai に合わせた(MODIFICATIONS.md 2026-11-05 Windows version、dev-rules 12・13)。GitHub Actions の Windows で確かめた(`.github/workflows/windows.yml`)
+- 仮想 Windows の結果(実行 41983831034、コミット ef5c7f4、イメージ windows-2025-vs2026 20261030.294.1):
+  - ctest 5/5 合格(audio_core、transport、transport_ipc、sync 56.8 秒、vst3_smoke)
+  - VST3 が読み込む DLL は kernel32.dll だけ。OBS 用は obs.dll と kernel32.dll だけ(Visual C++ ランタイム不要)
+  - pluginval 1.0.4(SHA-256 で固定)strictness 5、GUI の試験を除いて SUCCESS
+  - インストーラー `DAS-Kai-0.1.0-Windows-x64-Setup.exe`、SHA-256 `275189268c95cf42bf32e7c9e9ba94338498edd6ce36a82641ebb371237b0fac`。成果物を手元に落として値の一致を確認
+  - まっさらな Windows(`windows/server:ltsc2025`、Visual C++ ランタイムなし)で、黙ってインストール → 終了コード 0、すべてのファイル(日本語名の README を含む)と登録あり → 入った VST3 を vst3_smoke で読み込み、クロック周期 20833.1 ns(48 kHz)、受け取り側の待ち時間 49 ms、時刻のずれ最大 2.08 ms、音量 0.25 → アンインストールで VST3・OBS 用・アプリのフォルダー・登録がすべて消えた
+  - 合格までに4回失敗した。OBS の `pthread.h`、pluginval の置き場所、コンテナーのスクリプトの文字コード、Docker が動いていない。どれも上の「既知の罠」に書いた
+- Mac のダウンロード後の確認(別のセッションが行い、syspolicyd の記録で裏取り): リリースの ZIP に Chrome と同じ隔離属性を付け、アーカイブユーティリティで展開した。macOS の判定は「拒否」で、Setup.app を開くと止められた。利用者が「このまま開く」を押した後に入れると、入ったプラグインには許可済みの印(02c1)が付いた。そのまま、VST3 は das_kai_realtime_host で 4 秒・752 ブロック、AU は auval で SUCCEEDED、OBS 用は das_kai_obs_harness で受信できた。syspolicyd はプラグインを検査したが(evaluateScanResult 2)、確認の画面は出さなかった。止められるのは最初の Setup.app の1回だけ(macOS 26、この Mac)
+- Setup の画面(別のセッション、コミット e28518d): 操作のボタンを右下、ヘルプを左下に置いた。インストールかアンインストールが終わったら、右下の「完了」だけを出す。v0.1.0 の ZIP は前の画面のまま
+- 未検証:
+  - 実際の Windows の DAW と OBS。特に、Windows の OBS 本体で読み込まれることと、時刻が OBS と合うこと。仮想 Windows には OBS がない
+  - Windows で、署名のないインストーラーを開いた時の SmartScreen の画面の実際の文言
+  - Windows のプラグイン画面の見た目(フォントは Yu Gothic UI と Consolas。入っていない文字は JUCE が別のフォントで出す)
+  - macOS 13〜15 で、ダウンロードした Setup とプラグインを止める挙動
+
