@@ -15,6 +15,9 @@ final class SetupApp: NSObject, NSApplicationDelegate {
     private var installButton: NSButton!
     private var removeButton: NSButton!
     private var guideButton: NSButton!
+    // Shown alone at the bottom right once installing or uninstalling finished,
+    // like the last page of a standard installer.
+    private var doneButton: NSButton!
     private var progress: NSProgressIndicator!
     private var busy = false
     // Japanese first, like the DAS Kai plug-in window; 日本語 / English switches it.
@@ -42,16 +45,17 @@ final class SetupApp: NSObject, NSApplicationDelegate {
                           styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
         window.title = "DAS Kai Setup"
         window.isReleasedWhenClosed = false
+        let content = window.contentView!
         let stack = NSStackView()
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 20
         stack.translatesAutoresizingMaskIntoConstraints = false
-        window.contentView!.addSubview(stack)
+        content.addSubview(stack)
         NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: window.contentView!.leadingAnchor, constant: 30),
-            stack.trailingAnchor.constraint(equalTo: window.contentView!.trailingAnchor, constant: -30),
-            stack.topAnchor.constraint(equalTo: window.contentView!.topAnchor, constant: 26)
+            stack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 30),
+            stack.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -30),
+            stack.topAnchor.constraint(equalTo: content.topAnchor, constant: 26)
         ])
         language = NSSegmentedControl(labels: ["日本語", "English"], trackingMode: .selectOne, target: self, action: #selector(changeLanguage))
         language.selectedSegment = japanese ? 0 : 1
@@ -72,14 +76,32 @@ final class SetupApp: NSObject, NSApplicationDelegate {
         progress.isHidden = true
         stack.addArrangedSubview(progress)
         progress.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        // Buttons sit at the bottom: help on the left, actions on the right with
+        // the main one last, as in macOS's own installers.
         installButton = NSButton(title: "", target: self, action: #selector(install))
         installButton.keyEquivalent = "\r"
         removeButton = NSButton(title: "", target: self, action: #selector(uninstall))
-        let buttons = NSStackView(views: [installButton, removeButton])
-        buttons.spacing = 12
-        stack.addArrangedSubview(buttons)
+        let actions = NSStackView(views: [removeButton, installButton])
+        actions.spacing = 12
+        actions.translatesAutoresizingMaskIntoConstraints = false
+        content.addSubview(actions)
         guideButton = NSButton(title: "", target: self, action: #selector(guide))
-        stack.addArrangedSubview(guideButton)
+        guideButton.translatesAutoresizingMaskIntoConstraints = false
+        content.addSubview(guideButton)
+        doneButton = NSButton(title: "", target: self, action: #selector(finish))
+        doneButton.isHidden = true
+        doneButton.translatesAutoresizingMaskIntoConstraints = false
+        content.addSubview(doneButton)
+        NSLayoutConstraint.activate([
+            actions.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -24),
+            actions.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -22),
+            guideButton.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 24),
+            guideButton.centerYAnchor.constraint(equalTo: actions.centerYAnchor),
+            doneButton.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -24),
+            doneButton.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -22),
+            doneButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 96),
+            stack.bottomAnchor.constraint(lessThanOrEqualTo: actions.topAnchor, constant: -16)
+        ])
         refresh()
         window.center()
         window.makeKeyAndOrderFront(nil)
@@ -94,7 +116,9 @@ final class SetupApp: NSObject, NSApplicationDelegate {
         installButton.title = t("インストール / 更新", "Install / Update")
         removeButton.title = t("アンインストール…", "Uninstall…")
         guideButton.title = t("使い方・困ったとき", "Guide & help")
+        doneButton.title = t("完了", "Done")
     }
+    @objc private func finish() { NSApp.terminate(nil) }
     @objc private func guide() {
         NSWorkspace.shared.open(URL(string: Self.repository + "#readme")!)
     }
@@ -167,6 +191,16 @@ final class SetupApp: NSObject, NSApplicationDelegate {
     }
 
     private func showSuccess(install: Bool, warnings: [String]) {
+        // Nothing is left to choose: only Done remains, at the bottom right.
+        for control in [installButton, removeButton, guideButton] as [NSControl] {
+            control.isHidden = true
+            control.isEnabled = false
+        }
+        installButton.keyEquivalent = ""
+        language.isHidden = true
+        doneButton.isHidden = false
+        doneButton.keyEquivalent = "\r"
+        window.makeFirstResponder(doneButton)
         titleLabel.stringValue = install ? t("インストール完了", "Installation complete") : t("アンインストール完了", "Uninstall complete")
         body.stringValue = install
             ? t("DAW と OBS を開き直してください。\n1. DAW のマスターの最後に DAS Kai を1個挿します。\n2. OBS の「ソース」に「DAS Kai（DAW）」を追加します。設定は不要です。\n3. DAW を再生し、プラグイン画面の OBS 欄が「受信中」になることを確かめます。\n\nDAW に出ない時は、プラグインを再スキャンしてください。",
