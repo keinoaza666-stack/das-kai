@@ -12,7 +12,7 @@
 
 ## 2. 元のDawAudioStreamerと混線させない
 
-- 守ること: 識別子はすべて元と別の値を使う。プロトコルの印(`KSTR`)、共有メモリ名(`KinuStream.OBS.v2`、POSIX名の接頭辞 `/kst-`)、送信ロックのファイル名、OBSのソースID(`kinu_stream_audio_source`)、プラグインID(`Kein`/`Knst`)、バンドルID(`com.keinoaza.kinustream*`)
+- 守ること: 識別子はすべて元と別の値を使う。プロトコルの印(`KSTR`)、共有メモリ名(`KinuStream.OBS.v2`、POSIX名の接頭辞 `/kst-`)、送信ロックのファイル名(Windows では名前付きイベント `Local\KinuStream.Send.Owner.v1`)、Windows インストーラーの AppId、OBSのソースID(`kinu_stream_audio_source`)、プラグインID(`Kein`/`Knst`)、バンドルID(`com.keinoaza.kinustream*`)
 - 必ず通す入口: `RingBuffer.h`、`NamedSharedMemory_posix.cpp`、`PluginProcessor.cpp`(`senderLockPath`)、`obs-plugin.cpp`、`plugins/*/CMakeLists.txt`
 - 表示名を変える時(2026-11-04 に Kinu Stream → DAS Kai)は、画面・DAW・OBS に出る名前とバンドルのファイル名だけを変える。上の識別子と、保存データの形式名(`"KinuStream"`、`PluginProcessor.cpp`)は旧仮称のまま変えない。変えると、すでに DAW のプロジェクトや OBS のシーンに入れたものが外れる
 - 破ると: 両方を入れたMacで、片方のOBSソースがもう片方の音を拾う、またはDAW側の「1台に1個」の判定が相手を巻き込む
@@ -78,6 +78,18 @@
 - 守ること: バンドルのファイル名を変えたら、`installer/macos/SetupCore.swift` の `components`、`cmake/CreateMacPackage.cmake`、`scripts/install.sh`、`installer/macos/README-macOS.txt`、`README.md` を同じコミットで変える。Setup の作業用フォルダー(`.daskai-setup-`)とロック(`com.keinoaza.daskai.setup-<uid>.lock`)は、元の DawAudioStreamer の Setup(`.das-setup-`、`org.dawaudiostreamer`)と別の名前にしておく。Setup は管理者権限を求めず、権限・隔離属性(quarantine)・Gatekeeper に触らない(macOS の確認は利用者が自分で通す)。配布用 ZIP は、コミットして GitHub に送ったソースから `das_kai_package` で作る
 - 必ず通す入口: `installer/macos/SetupCore.swift`、`cmake/CreateMacPackage.cmake`
 - 破ると: 名前がずれると、Setup が「ファイルが足りない」で止まるか、古い版を消せずに2つ並ぶ。作業用フォルダーの名前が同じだと、片方の Setup が失敗して残したフォルダーで、もう片方も動かなくなる。ZIP とコミットがずれると、SOURCE.txt が中身と違うソースを指す(AGPL/GPL の対応ソースにならない)。`ctest -R setup`(仮のホームでの入れる・消す・巻き戻し・元の Setup との共存)と `setup_contract`(名前・URL・権限の約束)、`das_kai_package` の最後の「展開した ZIP での試験」で分かる
+
+## 12. DAW 側の時刻は、OBS と同じ時計を OBS と同じ計算で読む(Mac と Windows)
+
+- 守ること: DAW 側で時刻を取る所は、すべて `das::transport::monotonicNowNs()` を通す。`clock_gettime_nsec_np` や `QueryPerformanceCounter` を直接呼ばない。Windows では OBS の `os_gettime_ns()` と同じく、パフォーマンスカウンターを `util_mul_div64` と同じ計算(128 ビットの掛け算と割り算)でナノ秒にする
+- 必ず通す入口: `libs/transport/src/MonotonicClock.cpp`
+- 破ると: OBS に渡す時刻が OBS の時計とずれ、音の置き場所がずれる。片側だけの試験では分からない(Mac の試験は同じ時計を両側で使うため)。OBS のソースが計算を変えたら、ここも合わせる(`obs_headers-src/libobs/util/platform-windows.c`)
+
+## 13. Windows のインストーラーと OBS の関数一覧
+
+- 守ること: `installer/windows/DASKai.iss` の AppId は変えない(変えると更新のたびに別のアプリとして2つ並ぶ)。本家の AppId も使わない(dev-rules 2)。入れる場所を変えたら、`README.md`、`installer/windows/README-Windows.txt`、`tools/windows/check-installer.ps1` を同じコミットで変える。OBS 用プラグインが libobs の関数を新しく呼ぶ時は、`plugins/obs-source/obs-import.def` に足す
+- 必ず通す入口: `installer/windows/DASKai.iss`、`plugins/obs-source/obs-import.def`
+- 破ると: 一覧にない関数は Windows のリンクで止まる(Mac では止まらない)。場所がずれると、入れたのに見つからない・消し残る。GitHub Actions の Windows の確認(まっさらな Windows に入れて、読み込んで、消す)で分かる
 
 ## 変更の進め方
 

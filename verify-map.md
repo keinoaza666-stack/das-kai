@@ -16,6 +16,22 @@ cd build/release && ctest
 - 配布用 ZIP: コミットして GitHub に送った後、`cmake --build build/release --target das_kai_package`。出力は `build/release/dist/DAS-Kai-<版>-macOS-AppleSilicon.zip` と `.sha256`。未コミットの変更があると止まる(試すだけなら環境変数 `DAS_ALLOW_UNCOMMITTED=1` で、名前に `-uncommitted` が付く)。最後に ZIP を展開し、中の Setup で入れる・入れ直す・消すを仮のホームで試す
 - 配布前チェック: `python3 ~/.claude/skills/audio-plugin-dev/scripts/check_release_bundle.py <zip> <payload の .vst3> <payload の .component> --min-os 13.0 --version <版> --forbid <個人のメールアドレス>`。OBS 用の `.plugin` はこの道具の対象外なので、`lipo -archs`・`otool -l`(minos・LC_RPATH)・個人情報の文字列・`codesign --verify`・版を手で見る
 
+### Windows
+
+この Mac では Windows を動かせないので、GitHub Actions の Windows(仮想マシン、`windows-2025`)で作って確かめる。設定は `.github/workflows/windows.yml`。ブランチを GitHub に送るたびに動き、手で動かす時は Actions の「Windows」→「Run workflow」。
+
+```bash
+cmake -S . -B build -A x64 -DDAS_ISCC_EXECUTABLE="C:/Program Files (x86)/Inno Setup 6/ISCC.exe"
+cmake --build build --config Release --parallel 4
+ctest --test-dir build -C Release --output-on-failure
+cmake --build build --config Release --target das_kai_package
+```
+
+- 作られるもの: `build/plugins/send-vst3/DasKai_artefacts/Release/VST3/DAS Kai.vst3`、`build/plugins/obs-source/Release/das-kai-obs.dll`、`build/dist/DAS-Kai-<版>-Windows-x64-Setup.exe` と `.sha256`
+- 確かめる順: 試験 → DLL が Visual C++ ランタイムを読み込まないこと(`dumpbin /dependents`)→ pluginval(strictness 5、GUI の試験は除く)→ インストーラー → まっさらな Windows のコンテナーで、黙ってインストールし、入ったファイルを確かめ、入った VST3 を vst3_smoke で読み込み、アンインストールして消えたことを確かめる(`tools/windows/check-installer.ps1`)
+- 合格したインストーラーは、その実行の成果物(Artifacts、14日)に残る。リリースに載せるのはこのファイル(作り直さない)
+- 実際の Windows の DAW と OBS での確認はできない。未検証として報告する
+
 ## 検証ポイント
 
 | 何を確かめるか | 手段 | 合格の基準 |
@@ -41,6 +57,7 @@ cd build/release && ctest
 | Setup の約束(名前・URL・権限) | `ctest -R setup_contract` | OK。壊した写しで、作業用フォルダー名・xattr・バンドル名・URL・元のサイトへのリンクをそれぞれ検出することを確認済み(2026-11-05) |
 | 配布用 ZIP | `das_kai_package`(展開した ZIP の中身で Setup の試験を流す)と配布前チェック | 全項目 ok、`__MACOSX` なし、SOURCE.txt が GitHub 上のコミットを指す |
 | 実際の Setup.app | 展開した ZIP の Setup.app を開き、[インストール / 更新]・[アンインストール…]・英語切替を押す(Setup.app の操作だけ許可をもらう) | 「インストール完了」、入ったものが payload と `diff -rq` で一致、署名 ok、`.daskai-setup-*` が残らない、DAS Send の SHA-256 が変わらない |
+| Windows のビルド・試験・インストーラー | GitHub Actions の「Windows」(上の節) | すべての段階が成功 |
 | 実 DAW と実 OBS | ユーザーの手元(Cubase + OBS) | 自動化できない。未検証の項目として報告する |
 
 ## 既知の罠

@@ -7,7 +7,14 @@
 
 #include <obs-module.h>
 #include <util/platform.h>
+#if defined(_WIN32)
+// On Windows util/threading.h needs OBS's own pthread shim (deps/w32-pthreads),
+// which this plug-in does not otherwise use; declare the one function it
+// calls (listed in obs-import.def) instead.
+extern "C" void os_set_thread_name(const char* name);
+#else
 #include <util/threading.h>
+#endif
 
 #include <algorithm>
 #include <array>

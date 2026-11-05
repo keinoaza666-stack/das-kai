@@ -20,11 +20,14 @@ Copyright (c) 2026 Keinoaza(DAS Kai での変更・追加部分)
 - `libs/transport`：MIT License。`libs/transport/LICENSE`を参照してください。
 - `installer/macos`(DAS Kai Setup.app)、`tests/setup_tests.swift`、`cmake/CreateMacPackage.cmake`：
   上流のmacOS用セットアップを改変したもの。AGPL-3.0-only。
+- `installer/windows`(Windows のインストーラー)、`cmake/CreateWindowsInstaller.cmake`、
+  `tools/windows`：上流と Kinu Tune の Windows 用の仕組みを改変したもの。AGPL-3.0-only。
+  インストーラーの生成には Inno Setup を使います(`LICENSES/Inno-Setup.txt`)。
 
-配布用のZIP(DAS Kai Setup.app 入り)は GitHub のリリースで配ります。ZIP には、このファイル、
+配布物(Mac の ZIP と Windows のインストーラー)は GitHub のリリースで配ります。どちらにも、このファイル、
 ライセンス全文、変更点(MODIFICATIONS.md)、第三者のライセンス文(JUCE、VST3 SDK、r8brain、
 OBS、SIMDe)を licenses フォルダに入れ、対応するソースの場所(GitHub の該当コミット)を
-SOURCE.txt に書きます。ZIP は、コミットして GitHub に送ったソースから作ります
+SOURCE.txt に書きます。どちらも、コミットして GitHub に送ったソースから作ります
 (作り方は verify-map.md)。
 
 ライセンス全文：

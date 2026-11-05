@@ -90,3 +90,25 @@ was modified and when.
 - Tests: upstream's Setup tests (`tests/setup_tests.swift`) plus a check that
   the original's files and work folders are left alone, and
   `tests/setup_contract.cmake`.
+- Setup window: buttons at the bottom (help on the left, actions on the
+  right); after installing or uninstalling only a Done button remains.
+
+## 2026-11-05 (Keinoaza) — Windows version
+
+- The Windows parts removed at the fork came back where DAS Kai needs them:
+  upstream's Windows shared memory (`NamedSharedMemory_win.cpp`), the OBS
+  import list (`obs-import.def`, plus `blog` and `os_set_thread_name`) and
+  version resource, MSVC settings (static C++ runtime, upstream's flags) and
+  the Windows IPC test (adapted to the overwriting ring).
+- `das::transport::monotonicNowNs()`: the clock OBS stamps audio with, read
+  the way OBS reads it on each system (QueryPerformanceCounter scaled with
+  OBS's arithmetic on Windows), shared by the plug-in and the tools.
+- Plug-in: one sender per login via a named event with a DAS Kai name;
+  Windows fonts; AU only on macOS. Tests and the live monitor are portable.
+- Windows installer (`installer/windows/DASKai.iss`, from upstream's Inno
+  Setup script): DAS Kai names, its own AppId, no Discord or virtual-audio
+  parts; installs to the same places as upstream.
+- CI (`.github/workflows/windows.yml`): build, tests, DLL imports, pluginval,
+  installer, and a clean-Windows install check (`tools/windows`, from Kinu
+  Tune).
+
