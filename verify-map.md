@@ -50,7 +50,7 @@ cmake --build build --config Release --target das_kai_package
 | 実際の VST3 | `ctest -R vst3_smoke` | 名前・ベンダー、バイパスで無音を送る、2個目は送らない、補正値の公開、受信側で音と時刻が届く |
 | VST3 規格 | `pluginval --strictness-level 5 --validate "<DAS Kai.vst3>"` | SUCCESS |
 | AU 規格 | `auval -v aufx Knst Kein` | AU VALIDATION SUCCEEDED |
-| 配布物の検査 | `check_release_bundle.py <bundle> --min-os 13.0 --version 0.1.0`(VST3/AU)。OBS 用は `otool -l` で minos と LC_RPATH を手で見る | 全項目 ok。OBS 用は LC_RPATH なし |
+| 配布物の検査 | `check_release_bundle.py <bundle> --min-os 13.0 --version <版>`(VST3/AU)。OBS 用は `otool -l` で minos と LC_RPATH を手で見る | 全項目 ok。OBS 用は LC_RPATH なし |
 | OBS の本物の音声エンジン | `build/release/tests/das_kai_obs_harness build/release/plugins/obs-source/das-kai-obs.plugin 120 1000 90` | ミックスの時刻の抜け 0、DAW時刻とのずれのぶれ 0.1ms 未満、最初と最後の差 0.2ms 未満、手動 +45ms が 45ms ±0.5 で効く |
 | 画面と言語 | scratchpad の `snap_language.py`(pedalboard で開き、保存データの uiLanguage を書き換えて撮影)。`docs/screenshots/editor-ja.png`(既定)と `editor-en.png` | 既定は日本語、保存データに en があれば英語、読み込み後に保存し直したデータにも en が残る。崩れなし(pedalboard は書き出し扱いなので状態は「書き出し中」) |
 | Setup の入れる・消す・巻き戻し | `ctest -R setup`(仮のホームで17項目。元の DawAudioStreamer のファイルと作業用フォルダーに触らないことを含む) | すべて PASS |
@@ -79,6 +79,7 @@ cmake --build build --config Release --target das_kai_package
 - **Windows では OBS の `util/threading.h` が OBS 専用の `pthread.h`(deps/w32-pthreads)を求める**: OBS 用プラグインが使うのは `os_set_thread_name` だけなので、Windows ではヘッダーを読まずにその関数だけを宣言する(`obs-import.def` にも載せる)
 - **まっさらな Windows のコンテナーは Windows PowerShell 5.1**: BOM のない UTF-8 のスクリプトを ANSI として読み、日本語が化けて構文が壊れる。コンテナーで動かすスクリプトは `utf8BOM` で書き出す
 - **GitHub の Windows ランナーで Docker が動いていないことがある**(同じ版のイメージで、動いた回と動かない回があった)。確認の前に `Start-Service docker` して、応答するまで待つ。まっさらな Windows のイメージ(`windows/server:ltsc2025`)の取得は約 11 分かかる
+- **版を上げる時は `project(DasKai VERSION ...)` だけを変える**: プラグイン・OBS 用・Setup・インストーラーの版はすべてここから取る。以前は `DAS_COMPONENT_VERSION` がキャッシュに残り、既存のビルドフォルダーでは古い版のままになっていた(0.2.0 に上げる時に発見して直した)。配布前チェックの `--version` で止まる
 - **配布物を作る段階は、コミットにないファイルがあると止まる**(SOURCE.txt とずらさないため)。CI でダウンロードするもの(pluginval など)は `RUNNER_TEMP` に置き、ソースのフォルダーに置かない
 - **OBS 用プラグインに絶対パスの rpath を入れない**: `SKIP_BUILD_RPATH ON`。`@rpath/libobs` は OBS.app 側の `@executable_path/../Frameworks` で解決される(上流の配布物と同じ)
 

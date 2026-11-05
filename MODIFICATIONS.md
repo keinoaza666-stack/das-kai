@@ -112,3 +112,9 @@ was modified and when.
   installer, and a clean-Windows install check (`tools/windows`, from Kinu
   Tune).
 
+Released as 0.2.0 (2026-11-05): the Windows version, the Setup window
+change and the version fix below.
+
+- Build: the version embedded in the plug-ins always comes from
+  `project(VERSION)`; a cached copy no longer keeps an old number.
+

@@ -9,7 +9,7 @@ set(CMAKE_OSX_ARCHITECTURES arm64 CACHE STRING "Target architectures")
 
 # C is required: JUCE compiles a few C sources (SheenBidi) and the Makefile
 # generator does not enable it implicitly the way Xcode does.
-project(DasKai VERSION 0.1.0 LANGUAGES C CXX)
+project(DasKai VERSION 0.2.0 LANGUAGES C CXX)
 
 if(NOT APPLE AND NOT WIN32)
   message(FATAL_ERROR "DAS Kai builds on macOS and Windows only")
@@ -22,8 +22,11 @@ if(MSVC)
   set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 endif()
 
-set(DAS_COMPONENT_VERSION "${PROJECT_VERSION}" CACHE STRING
-    "Numeric x.y.z version embedded in built components")
+# Always the project version. It used to be a cache entry, which an existing
+# build folder kept at the old value after project(VERSION) changed, so the
+# plug-ins would still say 0.1.0 (found when bumping to 0.2.0).
+unset(DAS_COMPONENT_VERSION CACHE)
+set(DAS_COMPONENT_VERSION "${PROJECT_VERSION}")
 set(DAS_PUBLISHER "Keinoaza" CACHE STRING "Vendor shown in hosts")
 
 option(DAS_BUILD_TESTS "Build unit, simulation and smoke tests" ON)
