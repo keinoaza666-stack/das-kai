@@ -127,7 +127,9 @@ get_filename_component(setup_name "${setup}" NAME)
 file(SHA256 "${setup}" setup_sha)
 # Named like the macOS one: DAS-Kai-<version>-Windows-x64-Setup.sha256
 string(REGEX REPLACE "\\.exe$" ".sha256" sha_file "${setup}")
-file(WRITE "${sha_file}" "${setup_sha}  ${setup_name}\n")
+# LF line end: on Windows file(WRITE) gave CRLF, and `shasum -c` on a Mac
+# then looked for "<name>\r" (found in the 0.2.0 release).
+file(CONFIGURE OUTPUT "${sha_file}" CONTENT "${setup_sha}  ${setup_name}\n" NEWLINE_STYLE UNIX)
 message(STATUS "Created ${setup}")
 message(STATUS "SHA-256 ${setup_sha}")
 message(STATUS "Source  ${repository}/tree/${commit}")

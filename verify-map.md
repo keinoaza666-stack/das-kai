@@ -80,6 +80,7 @@ cmake --build build --config Release --target das_kai_package
 - **まっさらな Windows のコンテナーは Windows PowerShell 5.1**: BOM のない UTF-8 のスクリプトを ANSI として読み、日本語が化けて構文が壊れる。コンテナーで動かすスクリプトは `utf8BOM` で書き出す
 - **GitHub の Windows ランナーで Docker が動いていないことがある**(同じ版のイメージで、動いた回と動かない回があった)。確認の前に `Start-Service docker` して、応答するまで待つ。まっさらな Windows のイメージ(`windows/server:ltsc2025`)の取得は約 11 分かかる
 - **版を上げる時は `project(DasKai VERSION ...)` だけを変える**: プラグイン・OBS 用・Setup・インストーラーの版はすべてここから取る。以前は `DAS_COMPONENT_VERSION` がキャッシュに残り、既存のビルドフォルダーでは古い版のままになっていた(0.2.0 に上げる時に発見して直した)。配布前チェックの `--version` で止まる
+- **Windows で作った `.sha256` は行末が CRLF になっていた**(CMake の `file(WRITE)`)。Mac の `shasum -c` が「<名前>\r」を探して失敗する。`file(CONFIGURE ... NEWLINE_STYLE UNIX)` で LF にする。0.2.0 のリリースの値ファイルは LF のものに差し替えた(値は同じ)
 - **配布物を作る段階は、コミットにないファイルがあると止まる**(SOURCE.txt とずらさないため)。CI でダウンロードするもの(pluginval など)は `RUNNER_TEMP` に置き、ソースのフォルダーに置かない
 - **OBS 用プラグインに絶対パスの rpath を入れない**: `SKIP_BUILD_RPATH ON`。`@rpath/libobs` は OBS.app 側の `@executable_path/../Frameworks` で解決される(上流の配布物と同じ)
 
@@ -232,7 +233,7 @@ cmake --build build --config Release --target das_kai_package
 - Windows 版: フォークした時に削った Windows 用の部分のうち必要なものを本家から戻し、DAS Kai に合わせた(MODIFICATIONS.md 2026-11-05 Windows version、dev-rules 12・13)。GitHub Actions の Windows で確かめた(`.github/workflows/windows.yml`)
 - 仮想 Windows の結果(実行 41983831034、コミット ef5c7f4、イメージ windows-2025-vs2026 20261030.294.1):
   - ctest 5/5 合格(audio_core、transport、transport_ipc、sync 56.8 秒、vst3_smoke)
-  - VST3 が読み込む DLL は kernel32.dll だけ。OBS 用は obs.dll と kernel32.dll だけ(Visual C++ ランタイム不要)
+  - Visual C++ ランタイム(VCRUNTIME・MSVCP・ucrtbase)を読み込まない。VST3 が読み込むのは Windows 標準の DLL(kernel32、user32、gdi32、shell32、ole32、oleaut32、winmm、d2d1、dxgi、d3d11、dcomp、imm32、comctl32、dwmapi)、OBS 用は obs.dll と kernel32.dll だけ。最初は「VST3 は kernel32.dll だけ」と書いたが、記録の行を途中で切って読んだ誤り(0.2.0 の実行で全文を見て訂正)
   - pluginval 1.0.4(SHA-256 で固定)strictness 5、GUI の試験を除いて SUCCESS
   - インストーラー `DAS-Kai-0.1.0-Windows-x64-Setup.exe`、SHA-256 `275189268c95cf42bf32e7c9e9ba94338498edd6ce36a82641ebb371237b0fac`。成果物を手元に落として値の一致を確認
   - まっさらな Windows(`windows/server:ltsc2025`、Visual C++ ランタイムなし)で、黙ってインストール → 終了コード 0、すべてのファイル(日本語名の README を含む)と登録あり → 入った VST3 を vst3_smoke で読み込み、クロック周期 20833.1 ns(48 kHz)、受け取り側の待ち時間 49 ms、時刻のずれ最大 2.08 ms、音量 0.25 → アンインストールで VST3・OBS 用・アプリのフォルダー・登録がすべて消えた
@@ -244,4 +245,15 @@ cmake --build build --config Release --target das_kai_package
   - Windows で、署名のないインストーラーを開いた時の SmartScreen の画面の実際の文言
   - Windows のプラグイン画面の見た目(フォントは Yu Gothic UI と Consolas。入っていない文字は JUCE が別のフォントで出す)
   - macOS 13〜15 で、ダウンロードした Setup とプラグインを止める挙動
+
+### 記録 2026-11-05(0.2.0 を公開)
+
+- ユーザー指示: 「普通に公開して」(プレリリースの印なし)。0.2.0 = Windows 版 + Setup の画面の変更 + 版の番号の修正
+- 版の番号: `DAS_COMPONENT_VERSION` がキャッシュに残り、`project(VERSION)` を 0.2.0 にしても既存のビルドフォルダーではプラグインが 0.1.0 のままになる作りだった。毎回 `project(VERSION)` から取るように直し、VST3・AU・OBS 用が 0.2.0 になることを確認
+- コミット c856db3(main、タグ v0.2.0)から、Mac の ZIP は手元で、Windows のインストーラーは GitHub Actions(実行 41993091408)で作った
+  - Mac: ctest 7/7、配布前チェックは ZIP・VST3・AU で全項目 ok、OBS 用は手で ok(arm64、minos 13.0、rpath なし、個人情報 0、署名 ok、0.2.0)、pluginval strictness 5 SUCCESS、`__MACOSX` 0。ZIP の SHA-256 `8979f020721c0d51548187fa5e59825af9d0497ccbd5dd1332f6ce808dcc52cb`
+  - Windows: ctest 5/5、ランタイムの確認、pluginval 5 SUCCESS、まっさらな Windows で入れる・読み込む(時刻のずれ最大 2.73 ms)・消すが合格。インストーラーの SHA-256 `56d08cf8411fbca4491b854f984b9f58fe5130c8aefe4b185ce62b3a759829e5`
+- 公開: https://github.com/keinoaza666-stack/das-kai/releases/tag/v0.2.0 (Latest)。4つのファイルを GitHub から落とし直し、`shasum -c` で2つとも一致を確認。Windows の値ファイルは CRLF で照合に失敗したので、LF のものに差し替えた(上の「既知の罠」)
+- v0.1.0 はプレリリースのまま残した
+- 未検証は前の記録と同じ: 実際の Windows の DAW と OBS、SmartScreen の画面、Windows のプラグイン画面の見た目、macOS 13〜15、新しいクロックの推定の実際の Cubase での動き
 
