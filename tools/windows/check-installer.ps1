@@ -91,6 +91,24 @@ exit 0
 $build = [System.Environment]::OSVersion.Version.Build
 $tag = switch ($build) { 20348 { "ltsc2022" } 26100 { "ltsc2025" } default { throw "no container tag for Windows build $build" } }
 $image = "mcr.microsoft.com/windows/server:$tag"
+
+# On the same runner image the Docker service was running on one run and not
+# on the next (2026-11-05); start it and wait until it answers.
+$docker = Get-Service docker -ErrorAction SilentlyContinue
+if ($null -eq $docker) { throw "Docker is not installed on this runner" }
+if ($docker.Status -ne "Running") {
+    Write-Host "Starting the Docker service ($($docker.Status))"
+    Start-Service docker
+}
+$deadline = (Get-Date).AddMinutes(3)
+while ($true) {
+    docker version --format "{{.Server.Version}}" 2>$null | Out-Null
+    if ($LASTEXITCODE -eq 0) { break }
+    if ((Get-Date) -gt $deadline) { throw "Docker did not start within 3 minutes" }
+    Start-Sleep -Seconds 5
+}
+Write-Host "Docker $(docker version --format '{{.Server.Version}}') is running"
+
 Write-Host "::group::Pull $image"
 docker pull $image | Out-Host
 Write-Host "::endgroup::"
