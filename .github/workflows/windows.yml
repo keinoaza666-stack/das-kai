@@ -73,12 +73,16 @@ jobs:
       - name: pluginval (strictness 5)
         shell: pwsh
         run: |
-          Invoke-WebRequest -Uri 'https://github.com/Tracktion/pluginval/releases/download/v1.0.4/pluginval_Windows.zip' -OutFile pluginval.zip
-          $hash = (Get-FileHash -Algorithm SHA256 pluginval.zip).Hash
+          # Outside the checkout: the installer step refuses a working tree with
+          # files that are not in the commit.
+          $zip = Join-Path $env:RUNNER_TEMP 'pluginval.zip'
+          $dir = Join-Path $env:RUNNER_TEMP 'pluginval'
+          Invoke-WebRequest -Uri 'https://github.com/Tracktion/pluginval/releases/download/v1.0.4/pluginval_Windows.zip' -OutFile $zip
+          $hash = (Get-FileHash -Algorithm SHA256 $zip).Hash
           if ($hash -ne 'C08E61CE3B96DB41636F8EC7E76F4C7E2C13EBDAC7FA1B5A1F52B4F32EC715AB') { throw "pluginval.zip hash mismatch: $hash" }
-          Expand-Archive pluginval.zip -DestinationPath pluginval
+          Expand-Archive $zip -DestinationPath $dir
           # pluginval.exe is a GUI-subsystem program: pipe it so PowerShell waits and keeps the exit code.
-          & .\pluginval\pluginval.exe --strictness-level 5 --skip-gui-tests --timeout-ms 600000 --validate 'build\plugins\send-vst3\DasKai_artefacts\Release\VST3\DAS Kai.vst3' 2>&1 | Out-Host
+          & (Join-Path $dir 'pluginval.exe') --strictness-level 5 --skip-gui-tests --timeout-ms 600000 --validate 'build\plugins\send-vst3\DasKai_artefacts\Release\VST3\DAS Kai.vst3' 2>&1 | Out-Host
           if ($LASTEXITCODE -ne 0) { throw "pluginval failed ($LASTEXITCODE)" }
 
       - name: Build the installer
