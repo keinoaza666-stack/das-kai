@@ -37,18 +37,39 @@ $dir = "C:\Users\Public\Downloads\defender-check"
 if (Test-Path $dir) { Remove-Item -Recurse -Force $dir }
 New-Item -ItemType Directory -Path $dir | Out-Null
 
+# Turning protection on takes a while to take effect (the first time on a
+# runner, long enough that the control file below was accepted); wait until
+# Defender reports it.
+function Enable-Protection {
+    Set-MpPreference -DisableRealtimeMonitoring $false
+    $until = (Get-Date).AddMinutes(3)
+    while ($true) {
+        $status = Get-MpComputerStatus
+        if ($status.RealTimeProtectionEnabled -and $status.IoavProtectionEnabled -and $status.OnAccessProtectionEnabled) { return }
+        if ((Get-Date) -gt $until) { throw "Defender's real-time protection did not turn on within 3 minutes" }
+        Start-Sleep -Seconds 2
+    }
+}
+
 # Copies with protection off, so the file is first seen by the Save() call.
 function Copy-Unseen([string] $source, [string] $target) {
     Set-MpPreference -DisableRealtimeMonitoring $true
     Copy-Item -Force $source $target
-    Set-MpPreference -DisableRealtimeMonitoring $false
+    Enable-Protection
 }
 
 # Control: the same path must refuse the standard harmless EICAR test file.
 Set-MpPreference -DisableRealtimeMonitoring $true
 [System.IO.File]::WriteAllText("$dir\control.com", 'X5O!P%@AP[4\PZX54(P^)7CC)7}$EICAR-STANDARD-' + 'ANTIVIRUS-TEST-FILE!$H+H*')
-Set-MpPreference -DisableRealtimeMonitoring $false
-$control = [AttachmentScan]::Save("$dir\control.com", "https://example.com/control.com")
+Enable-Protection
+# A few tries: right after protection turns on, the first call can still pass.
+$control = "0x00000000"
+foreach ($try in 1..6) {
+    if (-not (Test-Path "$dir\control.com")) { $control = "removed"; break }
+    $control = [AttachmentScan]::Save("$dir\control.com", "https://example.com/control.com")
+    if ($control -ne "0x00000000") { break }
+    Start-Sleep -Seconds 10
+}
 Write-Host "control (EICAR test file): $control"
 if ($control -eq "0x00000000") { throw "Defender accepted the control file; this check is not working" }
 
