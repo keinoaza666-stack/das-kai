@@ -1,0 +1,41 @@
+# Checks the Windows files of a published release with Microsoft Defender, the
+# way a user's Chrome and Windows do on download (tools/windows/check-defender.ps1).
+# Run by hand when someone reports that a download is flagged as a virus:
+# Actions > Defender check > Run workflow, with the release tag.
+name: Defender check
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to check (e.g. v0.2.0)"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: windows-2025
+    timeout-minutes: 45
+    env:
+      RELEASE_TAG: ${{ inputs.tag }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download the release's Windows files
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force C:\release | Out-Null
+          gh release download $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY --pattern "*Windows*" --dir C:\release
+          Get-ChildItem C:\release | ForEach-Object { "$($_.Name) $($_.Length) $((Get-FileHash $_.FullName -Algorithm SHA256).Hash)" }
+
+      - name: Check the files with Defender like a browser download
+        shell: pwsh
+        run: |
+          $files = (Get-ChildItem C:\release).FullName
+          ./tools/windows/check-defender.ps1 -Files $files -SourceBase "https://github.com/$env:GITHUB_REPOSITORY/releases/download/$env:RELEASE_TAG"

@@ -30,6 +30,7 @@ cmake --build build --config Release --target das_kai_package
 
 - 作られるもの: `build/plugins/send-vst3/DasKai_artefacts/Release/VST3/DAS Kai.vst3`、`build/plugins/obs-source/Release/das-kai-obs.dll`、`build/dist/DAS-Kai-<版>-Windows-x64-Setup.exe` と `.sha256`
 - 確かめる順: 試験 → DLL が Visual C++ ランタイムを読み込まないこと(`dumpbin /dependents`)→ pluginval(strictness 5、GUI の試験は除く)→ インストーラー → まっさらな Windows のコンテナーで、黙ってインストールし、入ったファイルを確かめ、入った VST3 を vst3_smoke で読み込み、アンインストールして消えたことを確かめる(`tools/windows/check-installer.ps1`)
+- 最後に、できたインストーラーを Defender にかける(`tools/windows/check-defender.ps1`)。Chrome がダウンロード後に呼ぶのと同じ入口(IAttachmentExecute::Save)を、利用者の Windows と同じ設定(常時監視・クラウド判定・検体の自動送信あり)で通す。4回続けて受け入れられたら合格、止められたら最長 25 分待って試し直す。**ここで不合格のインストーラーは公開しない。** 公開済みのファイルを調べ直す時は、Actions の「Defender check」→「Run workflow」に版のタグを入れる
 - 合格したインストーラーは、その実行の成果物(Artifacts、14日)に残る。リリースに載せるのはこのファイル(作り直さない)
 - 実際の Windows の DAW と OBS での確認はできない。未検証として報告する
 
@@ -81,6 +82,7 @@ cmake --build build --config Release --target das_kai_package
 - **まっさらな Windows のコンテナーは Windows PowerShell 5.1**: BOM のない UTF-8 のスクリプトを ANSI として読み、日本語が化けて構文が壊れる。コンテナーで動かすスクリプトは `utf8BOM` で書き出す
 - **GitHub の Windows ランナーで Docker が動いていないことがある**(同じ版のイメージで、動いた回と動かない回があった)。確認の前に `Start-Service docker` して、応答するまで待つ。まっさらな Windows のイメージ(`windows/server:ltsc2025`)の取得は約 11 分かかる
 - **版を上げる時は `project(DasKai VERSION ...)` だけを変える**: プラグイン・OBS 用・Setup・インストーラーの版はすべてここから取る。以前は `DAS_COMPONENT_VERSION` がキャッシュに残り、既存のビルドフォルダーでは古い版のままになっていた(0.2.0 に上げる時に発見して直した)。配布前チェックの `--version` で止まる
+- **署名のない新しいインストーラーは、Defender のクラウドの自動判定で一時的にウイルス扱いされることがある**(0.2.0 で `Trojan:Win32/Wacatac.C!ml`)。`MpCmdRun -Scan` の検査では出ない。Chrome と同じ入口(IAttachmentExecute::Save)を、検体の自動送信ありで通すと出る。GitHub の Windows ランナーは C: と D: を Defender の対象外にしているので、外さないと何も検知されない。検査が効いているかは EICAR で確かめる
 - **Windows で作った `.sha256` は行末が CRLF になっていた**(CMake の `file(WRITE)`)。Mac の `shasum -c` が「<名前>\r」を探して失敗する。`file(CONFIGURE ... NEWLINE_STYLE UNIX)` で LF にする。0.2.0 のリリースの値ファイルは LF のものに差し替えた(値は同じ)
 - **配布物を作る段階は、コミットにないファイルがあると止まる**(SOURCE.txt とずらさないため)。CI でダウンロードするもの(pluginval など)は `RUNNER_TEMP` に置き、ソースのフォルダーに置かない
 - **OBS 用プラグインに絶対パスの rpath を入れない**: `SKIP_BUILD_RPATH ON`。`@rpath/libobs` は OBS.app 側の `@executable_path/../Frameworks` で解決される(上流の配布物と同じ)
@@ -257,4 +259,17 @@ cmake --build build --config Release --target das_kai_package
 - 公開: https://github.com/keinoaza666-stack/das-kai/releases/tag/v0.2.0 (Latest)。4つのファイルを GitHub から落とし直し、`shasum -c` で2つとも一致を確認。Windows の値ファイルは CRLF で照合に失敗したので、LF のものに差し替えた(上の「既知の罠」)
 - v0.1.0 はプレリリースのまま残した
 - 未検証は前の記録と同じ: 実際の Windows の DAW と OBS、SmartScreen の画面、Windows のプラグイン画面の見た目、macOS 13〜15、新しいクロックの推定の実際の Cubase での動き
+
+### 記録 2026-11-11(Windows のダウンロードが「ウイルスを検出しました」で止まる)
+
+- ユーザー報告: Windows から `DAS-Kai-0.2.0-Windows-x64-Setup.exe` を落とすと止められる(Mac からは落とせる)。Chrome は「ウイルスを検出しました」、Edge は脅威の表示で Microsoft への報告が必要。ウイルス対策は Windows 標準
+- 再現(GitHub の windows-2025、定義 1.463.236.0):
+  - `MpCmdRun -Scan` では、対象外の設定(C:・D:)を外し、EICAR で検査が効くことを確かめても、インストーラーも中の VST3・OBS 用 DLL・アンインストーラーも検知なし
+  - Chrome と同じ入口(IAttachmentExecute::Save)を、検体の自動送信あり(SubmitSamplesConsent = 1)で通すと、1回目は受け入れ、約 20 秒後の2回目で拒否されてファイルが消えた。検知名 `Trojan:Win32/Wacatac.C!ml`(06:40 UTC、実行 42973805667)
+  - 約 4 分後(06:44 UTC〜)からは、同じファイルが毎回受け入れられた。同じ中身から作った圧縮違いのインストーラー3種、ファイルだけの ZIP、DLL 単体も、6回ずつすべて受け入れ。やり直しの実行(06:52 UTC〜)でも同じ
+- 分かったこと: 中身ではなく、初めて見る署名なしのインストーラーに対するクラウドの自動判定(!ml)による誤検知。判定は短時間で変わった。検体がクラウドで調べられて解除されたと考えられるが、ユーザーが Edge から送った報告が効いた可能性もあり、どちらかは確かめられていない。本家にも同じ報告がある(Issue #22、翌日に解消)
+- 判定が変わった後だったので、「どの作り方なら止められにくいか」は比べられなかった(全部通った)。インストーラーの作り方は変えていない
+- 対策: Windows の確認の最後に Defender の検査を入れた(上の「Windows」の節)。新しい版は、この検査に通ってから公開する。README の「困った時」に案内を足した
+- 根本対策は署名。調べた範囲では、SignPath Foundation(無料・審査あり。実行ファイルには「検証できる評判」が要り、上流を改変したビルドには条件がある)と Microsoft の Artifact Signing(個人は米国とカナダのみで、新規受付は止まっているという回答がある)のどちらも、すぐには使えない。出典: https://signpath.org/terms 、https://learn.microsoft.com/en-us/answers/questions/5810735/ (2026-11-11 閲覧)
+- 未検証: ユーザーの Windows で、今は落とせるようになったか。Edge の SmartScreen の表示(ダウンロード数の少なさによる警告は、Defender の判定とは別に残りうる)
 

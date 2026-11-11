@@ -2,7 +2,8 @@
 # builds the VST3 and the OBS plug-in, runs the tests, checks that neither
 # needs the Visual C++ runtime, runs pluginval, builds the installer and
 # checks it on a clean Windows (tools/windows/check-installer.ps1). The
-# installer that passed is kept as a workflow artifact. Adapted from
+# installer that passed is kept as a workflow artifact, and is then checked
+# with Microsoft Defender the way a browser download is. Adapted from
 # upstream's .github/workflows/windows.yml and Kinu Tune's workflows
 # (2026-11-05); actions are pinned to commit IDs.
 name: Windows
@@ -104,3 +105,14 @@ jobs:
             build/dist/DAS-Kai-*-Windows-x64-Setup.sha256
           if-no-files-found: error
           retention-days: 14
+
+      # Last, because it turns Defender's protection on for the rest of the job.
+      # A new unsigned installer can be refused as a virus by Defender's cloud
+      # model on first sight (0.2.0 was); this waits until it is accepted, and
+      # fails if it is not. Do not publish an installer that fails here.
+      - name: Check the installer with Defender like a browser download
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem build\dist\DAS-Kai-*-Windows-x64-Setup.exe | Select-Object -First 1
+          ./tools/windows/check-defender.ps1 -Files $setup.FullName
+
