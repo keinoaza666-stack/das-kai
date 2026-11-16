@@ -140,6 +140,9 @@ private:
     case Event::lateAudio:
       blog(LOG_INFO, "[DAS Kai] DAW audio arrived late; waiting longer: delay %.0f ms", valueMs);
       break;
+    case Event::delayRestored:
+      blog(LOG_INFO, "[DAS Kai] the DAW's timing after its start is measured; delay set to %.0f ms", valueMs);
+      break;
     case Event::starved:
       blog(LOG_WARNING, "[DAS Kai] the receiver thread ran %.0f ms late", valueMs);
       break;

@@ -43,6 +43,15 @@ public:
   // After (re)starting, missing data is expected while the producer's
   // converter fills up; it is skipped without growing the delay.
   static constexpr std::int64_t kStartGraceNs = 300'000'000;
+  // The model a (re)started producer publishes first is one call, which a
+  // host may make several milliseconds off its steady timing (Cubase 15:
+  // 13 ms early). Until the producer replaces it with a measured one (its
+  // anchor moves; half a second, seconds after a pause), running out of audio
+  // says nothing about the delay needed later: the delay still grows so that
+  // audio comes out, but it returns to the initial value when the measured
+  // model arrives. After the limit the grown delay is kept (a producer that
+  // never measures).
+  static constexpr std::int64_t kModelSettleLimitNs = 10'000'000'000;
   static constexpr std::int64_t kMaximumOffsetNs = 1'200'000'000;
   // Ceiling for the total shift (auto + manual) placed earlier in OBS. OBS
   // buffers at most 960 ms (45 ticks of 1024 frames at 48 kHz); keep room
@@ -68,6 +77,7 @@ public:
     producerRestarted, // the DAW's clock restarted (engine restart, pause, export)
     timingStep,        // the DAW's timing stepped; value: ms, positive = DAW ran ahead
     lateAudio,         // audio arrived after the delay; value: the new delay in ms
+    delayRestored,     // the delay grown against the start-up model was dropped; value: the delay in ms
     starved,           // this thread was not scheduled in time; value: lateness in ms
     readFailed,        // the ring no longer held the frames needed
   };
@@ -103,6 +113,8 @@ public:
 private:
   void start(std::int64_t nowNs, const transport::ClockSnapshot& clock,
              const transport::ProducerControl& control);
+  // The producer (re)started: its model is a single call until it moves.
+  void awaitMeasuredModel(std::int64_t nowNs, const transport::ClockSnapshot& clock) noexcept;
   void resync(std::int64_t dueNs, const transport::ClockSnapshot& clock);
   // Drops the block due at dueNs and aims the read position at the next one.
   void skipBlock(std::int64_t dueNs, const transport::ClockSnapshot& clock) noexcept;
@@ -127,6 +139,12 @@ private:
   double position_ {};
   std::int64_t delayNs_ {};
   std::int64_t graceUntilNs_ {};
+  // The producer's model is still the single call it (re)started from (the
+  // anchor seen then, and when); delay grown against it is not kept.
+  bool modelProvisional_ {};
+  double provisionalAnchorFrame_ {};
+  std::int64_t provisionalAnchorTimeNs_ {};
+  std::int64_t provisionalSinceNs_ {};
   transport::ClockSnapshot lastClock_ {};
   bool haveLastClock_ {};
   bool autoCompensation_ {true};

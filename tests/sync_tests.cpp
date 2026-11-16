@@ -798,6 +798,115 @@ void testHostPatterns() {
   }
 }
 
+// A project is opened, closed and opened again while OBS keeps receiving.
+// The model a (re)started producer publishes first is a single call. In
+// Cubase 15 that call came about 13 ms earlier than the steady ones (OBS log,
+// 2026-11-16): the receiver read ahead of the audio until the first measured
+// point arrived half a second later, counted that as late audio the moment
+// the start grace ended, and kept 20 ms more delay for the whole session
+// (24 ms on the first open, 44 ms after every reopen).
+void testProjectReopen() {
+  struct Case {
+    const char* name;
+    double earlyMs;     // the first earlyCalls calls of a session come this early
+    int earlyCalls;
+    double closedS;     // time between the sessions
+    double pauseAtS {-1.0}; // the engine pauses once in a session (no new sender)...
+    double pauseS {};       // ...this long, and resumes with the same early calls
+    // 10 ms blocks a session may fail to deliver. Before the fix: 40 with an
+    // early first call, 109 with the pause (35 of them the pause itself).
+    int maxLostBlocks {45};
+  };
+  const Case cases[] = {
+      {"reopen: steady start", 0.0, 0, 10.0},
+      {"reopen: first call 13 ms early", 13.0, 1, 10.0},
+      {"reopen: first 40 ms of calls 13 ms early", 13.0, 8, 10.0},
+      // The engine restarts without the receiver seeing a stop (buffer size
+      // change): the same start, through the epoch change.
+      {"restart: first call 13 ms early", 13.0, 1, 0.05},
+      // The engine pauses for a moment (the receiver stops and starts again,
+      // the producer re-anchors by itself). The long gap makes the estimator's
+      // segments longer, so the first measured point comes two seconds later
+      // (OBS log 2026-11-16 10:53:20: late audio 0.31 s after the start, the
+      // model moved 2.3 s after it).
+      {"pause: first call 13 ms early", 13.0, 1, 10.0, 8.0, 0.35, 115},
+  };
+  constexpr double rate = 48000.0;
+  constexpr std::size_t blockFrames = 256;
+  constexpr double sessionS = 20.0;
+  constexpr double expectedDelayMs = 24.0; // 5.33 ms block + 10 ms + 8 ms, rounded up
+  const auto blockNs = static_cast<double>(blockFrames) / rate * 1.0e9;
+
+  for (const auto& entry : cases) {
+    HeapRing shared;
+    das::sync::StreamReceiver receiver(*shared.ring);
+    std::mt19937 random(11);
+    std::uniform_real_distribution<double> unit(0.0, 1.0);
+    std::vector<float> silence(blockFrames, 0.0F);
+    das::sync::StreamReceiver::Block out;
+    std::int64_t pollTime = 500'000'000'000'000;
+
+    for (int session = 0; session < 3; ++session) {
+      das::audio::StreamSender sender;
+      sender.prepare(rate, blockFrames, shared.ring.get());
+      const auto sessionStart = pollTime;
+      const auto sessionEnd = sessionStart + static_cast<std::int64_t>(sessionS * 1.0e9);
+      std::uint64_t index {};
+      const auto pauseCall = entry.pauseAtS >= 0.0
+                                 ? static_cast<std::uint64_t>(entry.pauseAtS * 1.0e9 / blockNs)
+                                 : ~std::uint64_t {};
+      auto callTime = [&](const std::uint64_t call) {
+        // The first calls after a start (and after the pause) come early.
+        const auto sinceStart = call >= pauseCall ? call - pauseCall : call;
+        const auto early = sinceStart < static_cast<std::uint64_t>(entry.earlyCalls) ? entry.earlyMs * 1.0e6 : 0.0;
+        const auto paused = call >= pauseCall ? entry.pauseS * 1.0e9 : 0.0;
+        return sessionStart + static_cast<std::int64_t>(20.0e6 + static_cast<double>(call + 1) * blockNs + paused -
+                                                        early + unit(random) * 0.5e6);
+      };
+      auto producerTime = callTime(0);
+      int emittedLate {}; // blocks emitted in the last 10 s
+      int emitted {};     // ...and in the whole session
+      while (pollTime < sessionEnd) {
+        if (producerTime <= pollTime) {
+          sender.process(silence.data(), silence.data(), blockFrames, producerTime);
+          producerTime = callTime(++index);
+          continue;
+        }
+        while (receiver.poll(pollTime, out)) {
+          emitted += static_cast<int>(out.frames / 480);
+          if (pollTime >= sessionEnd - 10'000'000'000) emittedLate += static_cast<int>(out.frames / 480);
+        }
+        pollTime += 1'000'000;
+      }
+      const auto delayMs = static_cast<double>(receiver.delayNs()) / 1.0e6;
+      // 10 ms blocks the session could not deliver: the start, the breaks
+      // (and the pause itself).
+      const auto lost = static_cast<int>(sessionS * 100.0) - emitted;
+      std::printf("[%s] session %d: delay %.0f ms, blocks lost %d, blocks in the last 10 s %d\n", entry.name,
+                  session + 1, delayMs, lost, emittedLate);
+      const auto name = std::string(entry.name) + ", session " + std::to_string(session + 1);
+      check(receiver.state() == das::sync::StreamReceiver::State::running, name + ": the receiver must be running");
+      check(delayMs == expectedDelayMs, name + ": the delay must be the initial one after every start");
+      check(emittedLate >= 995, name + ": output must be continuous once settled");
+      // Bringing the delay back must not cost more silence than the grown
+      // delay did. A receiver that simply did not judge lateness until the
+      // measured model arrived kept the delay too, but was silent for 1.8 s
+      // after a 0.35 s pause and 4 s after a longer one (first attempt,
+      // found in review).
+      check(lost <= entry.maxLostBlocks, name + ": too much output lost around the start");
+
+      // The project closes: nothing calls the plug-in.
+      const auto closedUntil = pollTime + static_cast<std::int64_t>(entry.closedS * 1.0e9);
+      while (pollTime < closedUntil) {
+        while (receiver.poll(pollTime, out)) {}
+        pollTime += 1'000'000;
+      }
+      if (entry.closedS >= 1.0)
+        check(receiver.state() == das::sync::StreamReceiver::State::idle, name + ": a closed project must stop the receiver");
+    }
+  }
+}
+
 } // namespace
 
 int main() {
@@ -810,6 +919,7 @@ int main() {
   testClockReadFailure();
   testOffsetCeiling();
   testBursts();
+  testProjectReopen();
   testHostPatterns();
   if (failures == 0) std::printf("all sync tests passed\n");
   return failures == 0 ? 0 : 1;

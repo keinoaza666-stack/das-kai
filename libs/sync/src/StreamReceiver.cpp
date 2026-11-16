@@ -49,9 +49,18 @@ void StreamReceiver::start(const std::int64_t nowNs, const transport::ClockSnaps
   blockIndex_ = 0;
   position_ = clock.frameAt(nowNs - delayNs_);
   needsTimestampBreak_ = true;
+  awaitMeasuredModel(nowNs, clock);
+  state_ = State::running;
+}
+
+void StreamReceiver::awaitMeasuredModel(const std::int64_t nowNs,
+                                        const transport::ClockSnapshot& clock) noexcept {
+  modelProvisional_ = true;
+  provisionalAnchorFrame_ = clock.anchorFrame;
+  provisionalAnchorTimeNs_ = clock.anchorTimeNs;
+  provisionalSinceNs_ = nowNs;
   graceUntilNs_ = nowNs + kStartGraceNs;
   lateSuspected_ = false;
-  state_ = State::running;
 }
 
 void StreamReceiver::skipBlock(const std::int64_t dueNs,
@@ -174,10 +183,30 @@ bool StreamReceiver::poll(const std::int64_t nowNs, Block& block) {
     // The producer re-anchored (re-prepared, paused or rendered offline).
     epoch_ = clock.epoch;
     delayNs_ = initialDelay(control.leadNs);
-    graceUntilNs_ = nowNs + kStartGraceNs;
-    lateSuspected_ = false;
+    awaitMeasuredModel(nowNs, clock);
     resync(dueNs, clock);
     emit(Event::producerRestarted, 0.0);
+  }
+
+  if (modelProvisional_) {
+    if (clock.anchorFrame != provisionalAnchorFrame_ || clock.anchorTimeNs != provisionalAnchorTimeNs_) {
+      // The producer measured its timing: the model may have moved by
+      // milliseconds from the single call it started with. Delay grown until
+      // now was grown against that call; drop it and judge lateness afresh,
+      // once the read position has followed the model.
+      modelProvisional_ = false;
+      const auto initial = initialDelay(control.leadNs);
+      if (delayNs_ != initial) {
+        delayNs_ = initial;
+        // The timestamps move with the delay: OBS needs a break (dev-rules 5).
+        resync(dueNs, clock);
+        emit(Event::delayRestored, static_cast<double>(delayNs_) / 1.0e6);
+      }
+      graceUntilNs_ = nowNs + kStartGraceNs;
+      lateSuspected_ = false;
+    } else if (nowNs - provisionalSinceNs_ >= kModelSettleLimitNs) {
+      modelProvisional_ = false;
+    }
   }
 
   if (lateSuspected_ && write != lateSuspectedWrite_) {

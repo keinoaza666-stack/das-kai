@@ -38,6 +38,7 @@ const char* eventName(const das::sync::StreamReceiver::Event event) {
   case Event::producerRestarted: return "producer re-anchored";
   case Event::timingStep: return "timing step (ms)";
   case Event::lateAudio: return "late audio, delay now (ms)";
+  case Event::delayRestored: return "start-up delay dropped, delay now (ms)";
   case Event::starved: return "receiver starved (ms)";
   case Event::readFailed: return "read failed";
   }
