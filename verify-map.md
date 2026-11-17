@@ -339,3 +339,15 @@ cmake --build build --config Release --target das_kai_package
 - 未検証: Windows のビルド(今回の変更は GitHub に送っていないので、CI を通っていない。コードを読んだ範囲では影響なし)
 - 実際の Cubase 14(同日 14:56、ユーザーが再起動して確認。Rosetta で起動): `vstscannermaster.log` に `Scanning: DAS Kai OK (253 ms)`、`vst3blocklist.xml` から DAS Kai が消えた(残りは arm64 だけの4本)、`vst3plugins.xml` に載り、Cubase 14 のプロセスが DAS Kai を読み込んでいる(`vmmap`)
 - 未検証: Rosetta の Cubase 14 で再生して OBS に音が届くこと。Rosetta の DAW と実際の OBS の組み合わせ(受け手のコードは OBS 用プラグインと同じだが、OBS そのものでは測っていない)
+
+### 記録 2026-11-17(0.2.1 を公開)
+
+- ユーザー指示: 「cubase14で起動確認、これでコミット公開まで進めて」。0.2.1 = Mac の DAW 用プラグインの arm64 + x86_64 化(上の記録)+ 受信側の修正(2026-11-16 の記録、コミット 35ab88d)
+- コミット 1cf22bb(main、タグ v0.2.1)から、Mac の ZIP は手元で、Windows のインストーラーは GitHub Actions(実行 44028934062)で作った
+  - Mac: `ctest` 12/12、pluginval strictness 5 は `arch -arm64` と `arch -x86_64` の両方で SUCCESS、版は VST3・AU・OBS 用とも 0.2.1。配布前チェックは ZIP(Setup.app)と、ZIP の中の VST3・AU(`--arch arm64 --arch x86_64`)で全項目 ok、OBS 用は手で ok(arm64、minos 13.0、rpath なし、個人情報 0、署名 ok、0.2.1)、`__MACOSX` 0。ZIP の中の VST3 を Cubase 14 のスキャナー(Rosetta)に読ませて `DAS Kai`・`0.2.1`、終了コード 0。ZIP の SHA-256 `31758f8a1fb406ba5c2608f8520c9337e09ec433f170138b5c8ed56d5db081cd`
+  - OBS 実エンジン 2分 +1000ppm(`das_kai_obs_harness ... 120 1000 90`): 時刻の抜け 0、ずれ 0.120ms(ぶれ最大 0.019ms)、最初 0.119 / 最後 0.118ms、手動 +45ms は -44.884ms(期待 -44.880ms)
+  - Windows: 全段階が成功(ビルド、試験、ランタイムの確認、pluginval 5、インストーラー、まっさらな Windows で入れる・読み込む・消す、Defender)。インストーラーの SHA-256 `f55f0af3b37a189335e29ce4e2dd1a97333a0610157d0c8a3501f136448df9f9`
+- 公開: https://github.com/keinoaza666-stack/das-kai/releases/tag/v0.2.1 (Latest)。2つのファイルを GitHub から落とし直し、SHA-256 が手元と一致。公開後に Actions の「Defender check」をタグ v0.2.1 で動かして成功(実行 44032348819)
+- この Mac に入っているもの(公開した 0.2.1 とは別のビルド): VST3 と AU は同じソースで版の表示が 0.2.0 のもの(ユーザーが Cubase 14 で確認したのはこれ)、OBS 用は 2026-11-16 に入れ替えた 0.2.0 表示のもの
+- 未検証: Rosetta の Cubase 14 で再生して実際の OBS に音が届くこと。実際の Windows の DAW と OBS。公開した ZIP の Setup.app をこの Mac で開いて入れること(展開した ZIP での自動の試験は合格)
+
