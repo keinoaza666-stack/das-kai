@@ -106,6 +106,12 @@
 - 分かっている限界: 始まりの時点で本当に延長が要るホストと、OBS が後から起動して直後に延長が要る場合は、一度戻してから延ばし直すので、途切れが1回(約 0.1〜0.3 秒)増える。戻す条件を絞る時は、ユーザーの症状(24ms に戻ること)を先にテストで固定する
 - どちらも `sync` テストの「reopen:」「restart:」「pause:」の行で落ちる(待ち時間が初期値か、出せなかったブロックの数が修正前より増えていないか)
 
+## 16. Mac の DAW 用プラグインは arm64 と x86_64 の両方を入れ、OBS 用は arm64 だけにする
+
+- 守ること: VST3 と AU は arm64 + x86_64(`CMAKE_OSX_ARCHITECTURES`、`CMakeLists.txt` の `project()` より前)。OBS 用プラグインと Setup.app は arm64 だけ(OBS.app の libobs が arm64 だけのため)。DAW 側が x86_64(Rosetta で開いた DAW)、OBS 側が arm64 という組み合わせが実際に起きるので、共有メモリに置くものは、どちらの CPU でも同じ大きさ・同じ位置になる型だけを使う(幅の決まった整数、`double` はビット列にして `uint64_t` で置く。`long`・`size_t`・`long double`・ポインター・`bool` をそのまま置かない)。時刻はナノ秒で渡す(`monotonicNowNs()`、dev-rules 12。`mach_absolute_time` の生の値は Rosetta と通常で単位が違う)
+- 必ず通す入口: `CMakeLists.txt` の先頭、`plugins/obs-source/CMakeLists.txt`(`OSX_ARCHITECTURES arm64`)、`RingBuffer.h` の `RingHeader`(位置を固定する `static_assert`)
+- 破ると: arm64 だけにすると、Rosetta で開いた DAW はプラグインを読み込めず、Cubase はブロックリストに入れる(2026-11-17、ユーザーの Cubase 14)。構造の位置がずれると、Rosetta の DAW から送った音や時刻を OBS が読み違える。`ctest -R mac_archs`(入っている CPU 種別)、`transport_ipc_rosetta`(x86_64 の送り手 → arm64 の受け手)、`vst3_smoke_rosetta`、`sync_rosetta` で分かる。古いビルドフォルダーはキャッシュに arm64 が残るので、`-DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"` で構成し直す
+
 ## 変更の進め方
 
 - 不具合を直す時は、直す前に失敗するテストを足す

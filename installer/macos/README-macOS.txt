@@ -1,6 +1,7 @@
 DAS Kai — macOS
 ===============
 macOS 13 以降・Apple Silicon(M シリーズの Mac)専用です。Intel の Mac では動きません。
+DAW は、Rosetta で開いていても使えます(Finder の「情報を見る」で「Rosetta を使用して開く」をオンにしている場合)。
 OBS は 32 系に対応しています。
 
 English instructions follow the Japanese section.
@@ -74,6 +75,7 @@ DAW と OBS を終了し、Setup.app の[アンインストール…]を押し�
 DAS Kai — macOS
 ===============
 macOS 13 or later, Apple Silicon (M-series Macs) only. It does not run on Intel Macs.
+The DAW may be one you open with Rosetta ("Open using Rosetta" in Finder's Get Info).
 Works with OBS 32.
 
 DAS Kai sends your DAW's audio to OBS without a virtual audio device. It is a

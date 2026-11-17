@@ -92,6 +92,17 @@ struct alignas(64) RingHeader final {
 };
 
 static_assert(sizeof(RingHeader) == 192);
+// The DAW side can be x86_64 (a DAW opened with Rosetta) while OBS is arm64:
+// both must see every field at the same place. Checked in each slice.
+static_assert(offsetof(RingHeader, capacityFrames) == 8);
+static_assert(offsetof(RingHeader, sampleRate) == 16);
+static_assert(offsetof(RingHeader, writePosition) == 24);
+static_assert(offsetof(RingHeader, consumerHeartbeat) == 56);
+static_assert(offsetof(RingHeader, clockSequence) == 64);
+static_assert(offsetof(RingHeader, producerLeadNs) == 120);
+static_assert(offsetof(RingHeader, consumerDelayNs) == 128);
+static_assert(offsetof(RingHeader, reserved3) == 160);
+static_assert(sizeof(std::atomic<std::uint64_t>) == 8 && sizeof(double) == 8);
 static_assert(std::atomic<std::uint64_t>::is_always_lock_free,
               "The transport needs lock-free 64-bit atomics");
 

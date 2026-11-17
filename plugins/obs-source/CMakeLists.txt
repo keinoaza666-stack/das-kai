@@ -46,6 +46,10 @@ target_sources(das_kai_obs PRIVATE data/locale/ja-JP.ini data/locale/en-US.ini)
 set_source_files_properties(data/locale/ja-JP.ini data/locale/en-US.ini PROPERTIES
   MACOSX_PACKAGE_LOCATION "Resources/locale")
 set_target_properties(das_kai_obs PROPERTIES
+  # OBS.app ships libobs for arm64 only, so this plug-in cannot be universal
+  # like the DAW plug-ins. The DAW side may still be x86_64 (a DAW opened with
+  # Rosetta): both sides meet in the shared memory (dev-rules 16).
+  OSX_ARCHITECTURES arm64
   BUNDLE TRUE
   BUNDLE_EXTENSION plugin
   MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist.in"

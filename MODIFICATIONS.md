@@ -118,3 +118,14 @@ change and the version fix below.
 - Build: the version embedded in the plug-ins always comes from
   `project(VERSION)`; a cached copy no longer keeps an old number.
 
+## 2026-11-17 (Keinoaza) — DAW plug-ins for DAWs opened with Rosetta
+
+- The macOS VST3 and AU are built for arm64 and x86_64 (they were arm64 only),
+  so a DAW that an Apple Silicon Mac opens with Rosetta can load them. The OBS
+  plug-in and Setup.app stay arm64; an Intel Mac is still not supported.
+- `RingBuffer.h`: compile-time checks that fix the position of the shared
+  header's fields in both architectures.
+- Tests: `mac_archs` (architectures of the built plug-ins), and the transfer,
+  the VST3 and the sender/clock code run through Rosetta
+  (`transport_ipc_rosetta`, `vst3_smoke_rosetta`, `sync_rosetta`).
+  `das_kai_live_monitor` can use a private ring (`KINU_STREAM_TEST_NAMESPACE`).

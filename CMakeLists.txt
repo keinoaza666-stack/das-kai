@@ -2,14 +2,21 @@ cmake_minimum_required(VERSION 3.25)
 
 # Must be set before project(): otherwise the build inherits this Mac's macOS
 # version as the minimum and the bundles refuse to load on older systems.
-# 13.0 matches upstream DawAudioStreamer's macOS preview. Apple Silicon only:
-# Intel cannot be tested here.
+# 13.0 matches upstream DawAudioStreamer's macOS preview.
+#
+# arm64 + x86_64 (2026-11-17): the DAW plug-ins (VST3, AU) must also load in a
+# DAW that an Apple Silicon Mac runs under Rosetta ("Open using Rosetta"), which
+# only sees x86_64 code; an arm64-only DAS Kai landed on Cubase 14's blocklist.
+# The OBS plug-in and Setup.app stay arm64 (OBS.app's libobs is arm64 only), so
+# an Intel Mac is still not supported. A build folder configured before this
+# change keeps "arm64" in its cache: reconfigure it with
+# -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" (ctest -R mac_archs catches it).
 set(CMAKE_OSX_DEPLOYMENT_TARGET 13.0 CACHE STRING "Minimum macOS version")
-set(CMAKE_OSX_ARCHITECTURES arm64 CACHE STRING "Target architectures")
+set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64" CACHE STRING "Target architectures")
 
 # C is required: JUCE compiles a few C sources (SheenBidi) and the Makefile
 # generator does not enable it implicitly the way Xcode does.
-project(DasKai VERSION 0.2.0 LANGUAGES C CXX)
+project(DasKai VERSION 0.2.1 LANGUAGES C CXX)
 
 if(NOT APPLE AND NOT WIN32)
   message(FATAL_ERROR "DAS Kai builds on macOS and Windows only")

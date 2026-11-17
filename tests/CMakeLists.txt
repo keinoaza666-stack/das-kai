@@ -81,6 +81,7 @@ if(DAS_BUILD_OBS_PLUGIN)
     "${obs_headers_SOURCE_DIR}/libobs" "${simde_SOURCE_DIR}")
   target_link_libraries(das_kai_obs_harness PRIVATE das_audio_core das_transport "${DAS_OBS_LIBRARY}")
   set_target_properties(das_kai_obs_harness PROPERTIES
+    OSX_ARCHITECTURES arm64 # libobs in OBS.app is arm64 only
     BUILD_RPATH "${DAS_OBS_FRAMEWORK_DIR}")
   add_dependencies(das_kai_obs_harness das_kai_obs)
 endif()
@@ -100,6 +101,37 @@ add_executable(das_kai_replay_trace replay_trace.cpp)
 target_link_libraries(das_kai_replay_trace PRIVATE das_audio_core das_sync das_transport)
 
 if(APPLE)
+# The DAW plug-ins hold arm64 and x86_64, the OBS plug-in arm64 only (see the
+# top-level CMakeLists). Fails on a build folder whose cache still says arm64.
+add_test(NAME mac_archs
+         COMMAND "${CMAKE_COMMAND}"
+                 "-DVST3=$<TARGET_FILE:DasKai_VST3>" "-DAU=$<TARGET_FILE:DasKai_AU>"
+                 "-DOBS=$<$<BOOL:${DAS_BUILD_OBS_PLUGIN}>:$<TARGET_FILE:das_kai_obs>>"
+                 -P "${CMAKE_CURRENT_SOURCE_DIR}/mac_archs.cmake")
+
+# A DAW opened with Rosetta runs the x86_64 slice while OBS stays arm64. These
+# run that slice through Rosetta: the transfer across the two architectures
+# (ring, clock model, controls), the real VST3 in an x86_64 host, and the
+# sender and clock code. Skipped where Rosetta is not installed.
+execute_process(COMMAND /usr/bin/arch -x86_64 /usr/bin/true
+                RESULT_VARIABLE das_rosetta_result OUTPUT_QUIET ERROR_QUIET)
+if(das_rosetta_result EQUAL 0 AND "x86_64" IN_LIST CMAKE_OSX_ARCHITECTURES
+   AND "arm64" IN_LIST CMAKE_OSX_ARCHITECTURES)
+  add_test(NAME transport_ipc_rosetta COMMAND das_transport_ipc_tests)
+  set_tests_properties(transport_ipc_rosetta PROPERTIES
+    TIMEOUT 40 ENVIRONMENT "DAS_IPC_PRODUCER_ARCH=x86_64;DAS_IPC_CONSUMER_ARCH=arm64")
+  add_test(NAME vst3_smoke_rosetta
+           COMMAND /usr/bin/arch -x86_64 "$<TARGET_FILE:das_kai_vst3_smoke>"
+                   "$<TARGET_FILE_DIR:DasKai_VST3>/../..")
+  set_tests_properties(vst3_smoke_rosetta PROPERTIES TIMEOUT 120)
+  add_test(NAME sync_rosetta
+           COMMAND /usr/bin/arch -x86_64 "$<TARGET_FILE:das_kai_sync_tests>")
+  set_tests_properties(sync_rosetta PROPERTIES TIMEOUT 900)
+else()
+  message(WARNING "Rosetta tests are not registered (Rosetta missing, or the "
+                  "build is not arm64 + x86_64): ${CMAKE_OSX_ARCHITECTURES}")
+endif()
+
 # DAS Kai Setup.app: install / update / uninstall / rollback in a throw-away
 # home folder (built by the das_kai_setup target in the top-level CMakeLists).
 add_test(NAME setup COMMAND "${DAS_SETUP_TESTS}")

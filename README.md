@@ -10,8 +10,8 @@ DawAudioStreamer(yoruhinot 作)を改造したもので、元のソフトとは�
 
 | パソコン | ファイル |
 |---|---|
-| **Mac**(Apple Silicon・macOS 13 以降) | [DAS-Kai-0.2.0-macOS-AppleSilicon.zip](https://github.com/keinoaza666-stack/das-kai/releases/download/v0.2.0/DAS-Kai-0.2.0-macOS-AppleSilicon.zip) |
-| **Windows**(10 / 11・64 ビット) | [DAS-Kai-0.2.0-Windows-x64-Setup.exe](https://github.com/keinoaza666-stack/das-kai/releases/download/v0.2.0/DAS-Kai-0.2.0-Windows-x64-Setup.exe) |
+| **Mac**(Apple Silicon・macOS 13 以降) | [DAS-Kai-0.2.1-macOS-AppleSilicon.zip](https://github.com/keinoaza666-stack/das-kai/releases/download/v0.2.1/DAS-Kai-0.2.1-macOS-AppleSilicon.zip) |
+| **Windows**(10 / 11・64 ビット) | [DAS-Kai-0.2.1-Windows-x64-Setup.exe](https://github.com/keinoaza666-stack/das-kai/releases/download/v0.2.1/DAS-Kai-0.2.1-Windows-x64-Setup.exe) |
 
 OBS Studio 32 で使えます。ほかの版は [Releases](https://github.com/keinoaza666-stack/das-kai/releases) にあります。
 
@@ -103,7 +103,7 @@ DAW を開き、マスターの最後に「DAS Kai」を1個挿します(Mac は
 
 ## 対応環境
 
-- Mac: Apple Silicon、macOS 13 以降、VST3 か AU に対応した DAW
+- Mac: Apple Silicon、macOS 13 以降、VST3 か AU に対応した DAW(Rosetta で開いている DAW でも使えます)
 - Windows: Windows 10 / 11 の 64 ビット版、VST3 に対応した 64 ビットの DAW
 - OBS Studio 32
 

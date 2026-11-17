@@ -10,12 +10,14 @@ cmake --build build/release --config Release -j8
 cd build/release && ctest
 ```
 
+- **Mac の DAW 用プラグイン(VST3・AU)は arm64 + x86_64、OBS 用プラグインと Setup.app は arm64 だけ**(2026-11-17、dev-rules 16)。Rosetta で開いた DAW は x86_64 のコードしか読み込めないため。Intel の Mac は引き続き対象外(OBS 用が arm64 だけ)
+- **2026-11-17 より前に構成したビルドフォルダーは、キャッシュに `arm64` が残る**(`CMakeLists.txt` の値は、キャッシュに既にある値を上書きしない)。`cmake -S . -B build/release -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"` で構成し直す。残ったままだと `ctest -R mac_archs` が落ちる
 - 初回の configure で JUCE・r8brain・OBS ソース・SIMDe を GitHub から取得する(コミットID固定)。取得済みのものを使う時は `-DFETCHCONTENT_SOURCE_DIR_JUCE=<path>` などで指す
 - OBS 用プラグインは `/Applications/OBS.app` の libobs.framework にリンクする。OBS が入っていないとビルドできない
 - インストール: `scripts/install.sh`(削除 → コピー → 署名し直し、最後に SHA-256 を表示)
 - 配布用 ZIP: コミットして GitHub に送った後、`cmake --build build/release --target das_kai_package`。出力は `build/release/dist/DAS-Kai-<版>-macOS-AppleSilicon.zip` と `.sha256`。未コミットの変更があると止まる(試すだけなら環境変数 `DAS_ALLOW_UNCOMMITTED=1` で、名前に `-uncommitted` が付く)。最後に ZIP を展開し、中の Setup で入れる・入れ直す・消すを仮のホームで試す
 - リリースの手順: `project(VERSION)` と README のダウンロードのリンクを同じコミットで上げる(`ctest -R readme_links` が見張る)→ GitHub に送る → Mac の ZIP は手元、Windows のインストーラーは GitHub Actions の成果物 → `gh release create v<版> --latest` に ZIP と Setup.exe の2つだけを載せる。`.sha256` は作られるが、リリースには載せない(2026-11-05 ユーザー指示「迷う。必要ないなら出す必要ない」)。説明文は初めての人向けに、何をするものか・どのファイルか・入れ方だけを書く(経緯や確認の記録は書かない)
-- 配布前チェック: `python3 ~/.claude/skills/audio-plugin-dev/scripts/check_release_bundle.py <zip> <payload の .vst3> <payload の .component> --min-os 13.0 --version <版> --forbid <個人のメールアドレス>`。OBS 用の `.plugin` はこの道具の対象外なので、`lipo -archs`・`otool -l`(minos・LC_RPATH)・個人情報の文字列・`codesign --verify`・版を手で見る
+- 配布前チェック: `python3 ~/.claude/skills/audio-plugin-dev/scripts/check_release_bundle.py <zip> <payload の .vst3> <payload の .component> --min-os 13.0 --version <版> --arch arm64 --arch x86_64 --forbid <個人のメールアドレス>`(`--arch` を2つ付けないと、x86_64 が抜けても通る)。OBS 用の `.plugin` はこの道具の対象外なので、`lipo -archs`・`otool -l`(minos・LC_RPATH)・個人情報の文字列・`codesign --verify`・版を手で見る
 
 ### Windows
 
@@ -52,7 +54,11 @@ cmake --build build --config Release --target das_kai_package
 | 実際の VST3 | `ctest -R vst3_smoke` | 名前・ベンダー、バイパスで無音を送る、2個目は送らない、補正値の公開、受信側で音と時刻が届く |
 | VST3 規格 | `pluginval --strictness-level 5 --validate "<DAS Kai.vst3>"` | SUCCESS |
 | AU 規格 | `auval -v aufx Knst Kein` | AU VALIDATION SUCCEEDED |
-| 配布物の検査 | `check_release_bundle.py <bundle> --min-os 13.0 --version <版>`(VST3/AU)。OBS 用は `otool -l` で minos と LC_RPATH を手で見る | 全項目 ok。OBS 用は LC_RPATH なし |
+| 入っている CPU 種別 | `ctest -R mac_archs` | VST3 と AU が arm64 + x86_64、OBS 用が arm64 |
+| Rosetta で開いた DAW での読み込み | `ctest -R rosetta`(x86_64 の送り手 → arm64 の受け手の受け渡し、x86_64 のホストでの実際の VST3、送信とクロックの計算)。規格は `arch -x86_64 /Applications/pluginval.app/Contents/MacOS/pluginval --strictness-level 5 --validate "<DAS Kai.vst3>"` と `arch -x86_64 auval -v aufx Knst Kein` | すべて合格 / SUCCESS |
+| Cubase のスキャン(Rosetta) | `arch -x86_64 "/Applications/Cubase 14.app/Contents/Components/vstscanner" -p "<配置した DAS Kai.vst3>" -timeout 60`(Cubase を終了・再起動せずに、Cubase 自身のスキャナーを Rosetta で動かす。標準出力に結果が出るだけで、Cubase の設定は書き換えない) | `<classInfos>` に `DAS Kai` が出て終了コード 0。読めない時は `<error>` に理由が出る |
+| Rosetta のホスト → arm64 の受け手(実時間) | 両方に `KINU_STREAM_TEST_NAMESPACE=<名前>` を付けて、`arch -arm64 das_kai_live_monitor 33` を起動し、1 秒後に `arch -x86_64 das_kai_realtime_host "<DAS Kai.vst3>" 30 --device "Mac Studioのスピーカー" --buffer 256 [--guard 8]`。名前を付けると本物とは別の共有メモリとロックを使うので、DAW が DAS Kai を読み込んだままでも測れる | `arch -arm64` のホストで測った結果と同じ(仕切り直し・切れ目・遅れの回数、待ち時間、クロックのずれ) |
+| 配布物の検査 | `check_release_bundle.py <bundle> --min-os 13.0 --version <版> --arch arm64 --arch x86_64`(VST3/AU)。OBS 用は `otool -l` で minos と LC_RPATH を手で見る | 全項目 ok。OBS 用は LC_RPATH なし |
 | OBS の本物の音声エンジン | `build/release/tests/das_kai_obs_harness build/release/plugins/obs-source/das-kai-obs.plugin 120 1000 90` | ミックスの時刻の抜け 0、DAW時刻とのずれのぶれ 0.1ms 未満、最初と最後の差 0.2ms 未満、手動 +45ms が 45ms ±0.5 で効く |
 | 画面と言語 | scratchpad の `snap_language.py`(pedalboard で開き、保存データの uiLanguage を書き換えて撮影)。`docs/screenshots/editor-ja.png`(既定)と `editor-en.png` | 既定は日本語、保存データに en があれば英語、読み込み後に保存し直したデータにも en が残る。崩れなし(pedalboard は書き出し扱いなので状態は「書き出し中」) |
 | Setup の入れる・消す・巻き戻し | `ctest -R setup`(仮のホームで17項目。元の DawAudioStreamer のファイルと作業用フォルダーに触らないことを含む) | すべて PASS |
@@ -85,6 +91,8 @@ cmake --build build --config Release --target das_kai_package
 - **署名のない新しいインストーラーは、Defender のクラウドの自動判定で一時的にウイルス扱いされることがある**(0.2.0 で `Trojan:Win32/Wacatac.C!ml`)。`MpCmdRun -Scan` の検査では出ない。Chrome と同じ入口(IAttachmentExecute::Save)を、検体の自動送信ありで通すと出る。GitHub の Windows ランナーは C: と D: を Defender の対象外にしているので、外さないと何も検知されない。検査が効いているかは EICAR で確かめる
 - **Windows で作った `.sha256` は行末が CRLF になっていた**(CMake の `file(WRITE)`)。Mac の `shasum -c` が「<名前>\r」を探して失敗する。`file(CONFIGURE ... NEWLINE_STYLE UNIX)` で LF にする。0.2.0 のリリースの値ファイルは LF のものに差し替えた(値は同じ)
 - **配布物を作る段階は、コミットにないファイルがあると止まる**(SOURCE.txt とずらさないため)。CI でダウンロードするもの(pluginval など)は `RUNNER_TEMP` に置き、ソースのフォルダーに置かない
+- **Rosetta で開いた DAW は、arm64 だけのプラグインを読み込めない**(2026-11-17): Cubase は読み込めなかったプラグインをブロックリストに入れる。Rosetta で開いた時の記録は `~/Library/Preferences/Cubase <版>/Cubase Pro VST3 Cache/vst3blocklist.xml`、通常モードの記録は `Cubase Pro VST3 Cache (arm64)/` で、別々に持つ。ブロックリストには理由が書かれない(`unsupportedArchitectures` は空、`hasInvalidCodesignature` は 0 のまま)。理由は Cubase 同梱の `vstscanner` を直接動かすと出る(検証ポイントの表)。DAW が Rosetta で開いているかは `lsappinfo info -only arch $(lsappinfo find pid=<PID>)`、起動の設定は `plutil -p ~/Library/Preferences/com.apple.LaunchServices/com.apple.LaunchServices.plist`
+- **Rosetta と通常モードでは `mach_absolute_time` の単位が違う**(timebase が 1/1 と 125/3)。`clock_gettime_nsec_np(CLOCK_UPTIME_RAW)` はどちらでも同じナノ秒を返す(2026-11-17 に交互に呼んで確認)。時刻は必ず `monotonicNowNs()` を通す(dev-rules 12)
 - **OBS 用プラグインに絶対パスの rpath を入れない**: `SKIP_BUILD_RPATH ON`。`@rpath/libobs` は OBS.app 側の `@executable_path/../Frameworks` で解決される(上流の配布物と同じ)
 
 ## 外部依存
@@ -304,3 +312,30 @@ cmake --build build --config Release --target das_kai_package
 - OBS 用プラグインの入れ替え(2026-11-16 14:16、ユーザーの許可あり。VST3 と AU は入れ替えていない): OBS を終了 → 古い実体を `build/obs-plugin-backup-0.2.0-20261116-141618` に退避 → コピー → 署名し直し。SHA-256 はビルド側と配置側で一致(`9993fbf0…`、退避した 0.2.0 は `7abde3ef…`)。OBS 32 を起動し、ログ `2026-11-16 14-16-25.txt` で `das-kai-obs` の読み込みと音源 `DAS Kai(DAW)` の作成を確認(Cubase はプロジェクトを開いていないので、受信は始まっていない)
 - 実際の Cubase 15 と OBS(2026-11-16、ユーザーの手元): ユーザーが開き直して改善を確認。OBS のログ `2026-11-16 14-16-25.txt` に残っている開始は1回(14:21:26)で、`receiving: delay 24 ms` → 0.31 秒後に `DAW audio arrived late; waiting longer: delay 45 ms` → その 0.22 秒後に `the DAW's timing after its start is measured; delay set to 24 ms`。6 秒後の status の行は `delay 24 ms`(修正前は同じ流れで 44〜45 ms のまま残っていた)
 - 未検証: 一時停止から戻った時と、受信が止まらないままの再起動(バッファーサイズの変更など)は、実機のログにまだ出ていない(模擬では合格)
+
+### 記録 2026-11-17(Cubase 14 でブロックリストに入る → DAW 用プラグインを arm64 + x86_64 に)
+
+- 症状(ユーザー報告): DAS Kai が Cubase 14 でブロックリストに入る。Cubase 15 では認識される
+- 原因: この Mac では Cubase 12・13・14 に「Rosetta を使用して開く」が設定されていて(起動中の Cubase 14 は x86_64、Cubase 15 は arm64)、DAS Kai は arm64 だけだった。Cubase 14 の Rosetta 用のブロックリストに入っていた5本(Kinu Tune、DAS Kai、DAS Send、Kinu EQ、Aza76)はすべて arm64 だけで、両方入りの EXOTT は Rosetta 用の記録で合格(`OK (CACHED)`)になっていて、`arch -x86_64` での読み込みも成功する。`arch -x86_64` での読み込みは `incompatible architecture (have 'arm64', need 'x86_64')` で失敗
+- 変更: VST3 と AU を arm64 + x86_64 に(`CMakeLists.txt`)。OBS 用と `das_kai_obs_harness` は arm64 のまま(`OSX_ARCHITECTURES arm64`)。`RingHeader` の各項目の位置を `static_assert` で固定。プロセス間テストは、クロック情報と補正値も受け渡して確かめ、送り手を別の CPU 種別で起動できるようにした。`das_kai_live_monitor` は `KINU_STREAM_TEST_NAMESPACE` で別の共有メモリを使える。この時点の版は 0.2.0(同日に 0.2.1 として公開、下の記録)
+- ビルド: `build/release` を `-DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"` で構成し直して全ターゲット。VST3 と AU は `x86_64 arm64`、OBS 用は `arm64`、どれも minos 13.0
+- `ctest` 12/12 合格(追加の4つ: `mac_archs`、`transport_ipc_rosetta`、`vst3_smoke_rosetta`、`sync_rosetta`)。`sync` は arm64 で 44.4 秒、Rosetta で 45.1 秒。見張りが効くことの確認: `mac_archs` に配置済みの旧 VST3(arm64 だけ)を渡すと落ちる、`DAS_IPC_PRODUCER_ARCH` に存在しない種別を渡すと落ちる
+- pluginval(strictness 5、ビルドした VST3): `arch -arm64` と `arch -x86_64` の両方で SUCCESS
+- 実時間(48kHz・バッファ 256・「Mac Studioのスピーカー」・30 秒、受け手は arm64 の `das_kai_live_monitor`、別の共有メモリ):
+
+  | ホスト | 先読み | 切れ目 | 遅れ | 仕切り直し | 待ち時間 | クロックのずれ |
+  |---|---|---|---|---|---|---|
+  | x86_64(Rosetta) | なし | 0 | 0 | 0 | 24ms | -4.4ppm |
+  | arm64 | なし | 0 | 0 | 0 | 24ms | -4.5ppm |
+  | x86_64(Rosetta) | 8 ブロック | 3 | 1 | 3 | 24ms(55ms → 戻る) | -4.3ppm |
+  | arm64 | 8 ブロック | 3 | 1 | 3 | 24ms(55ms → 戻る) | -4.2ppm |
+
+  先読みありの切れ目と遅れは、どちらも始まりの 1.5〜1.7 秒に出る同じ並び(遅れ → 時刻の調整 → 始まりの延長を戻す、dev-rules 15)。共有メモリを消してまっさらにした状態でも、x86_64 と arm64 を交互に2回ずつ測って、4回とも切れ目 0・遅れ 0・仕切り直し 0
+- 一度だけ出たもの: x86_64 の VST3 を初めて動かした回だけ、始まりの 1.16 秒に時刻の調整が1回(-7.03ms)出た。その後の x86_64 の4回では出ていない。Rosetta が新しい実体を初めて変換する時の遅れが原因と考えているが、確かめていない
+- 配置(VST3 と AU だけ。OBS 用は入れ替えていない。`scripts/install.sh` と同じ手順: 署名 → 削除 → コピー → 署名し直し): SHA-256 はビルド側と配置側で一致(VST3 `4a1fa19d…d349b`、AU `da581323…dc51`)。配置した時、Cubase 15 は旧版を読み込んだまま動いていた(再起動するまで旧版のまま)
+- 配置した実体で: `arch -x86_64` の読み込み成功(修正前に失敗した再現手順)、`auval -v aufx Knst Kein` は `arch -arm64` と `arch -x86_64` の両方で AU VALIDATION SUCCEEDED、配布前チェック(`--arch arm64 --arch x86_64 --min-os 13.0 --version 0.2.0`)は VST3・AU とも全項目 ok
+- Cubase 14 のスキャナー(`arch -x86_64 .../Cubase 14.app/Contents/Components/vstscanner -p "<DAS Kai.vst3>"`): `DAS Kai`・`Keinoaza`・`0.2.0`・`Fx|Tools` を返して終了コード 0。対照として arm64 だけの Kinu Tune は「doesn’t contain a version for the current architecture」で終了コード 1
+- 独立した検品(同日): 反証なし。指摘を受けて直したもの: プロセス間テストの受け手の CPU 種別を明示(`DAS_IPC_CONSUMER_ARCH=arm64`。指定しないと起動元と同じ種別になり、Rosetta のターミナルから ctest を動かすと CPU 種別をまたがないまま合格していた)、検証ポイントの表の配布物の検査に `--arch` を追加。検品側でも、x86_64 を抜いたコピーを Cubase 14 のスキャナーに Rosetta で読ませて同じエラーを再現、x86_64 側に AVX 命令が無いこと、隔離属性が付いていないこと、スキャナーが Cubase の設定を書き換えないことを確認
+- 未検証: Windows のビルド(今回の変更は GitHub に送っていないので、CI を通っていない。コードを読んだ範囲では影響なし)
+- 実際の Cubase 14(同日 14:56、ユーザーが再起動して確認。Rosetta で起動): `vstscannermaster.log` に `Scanning: DAS Kai OK (253 ms)`、`vst3blocklist.xml` から DAS Kai が消えた(残りは arm64 だけの4本)、`vst3plugins.xml` に載り、Cubase 14 のプロセスが DAS Kai を読み込んでいる(`vmmap`)
+- 未検証: Rosetta の Cubase 14 で再生して OBS に音が届くこと。Rosetta の DAW と実際の OBS の組み合わせ(受け手のコードは OBS 用プラグインと同じだが、OBS そのものでは測っていない)

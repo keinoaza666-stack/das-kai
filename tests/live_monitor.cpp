@@ -7,6 +7,7 @@
 // measures the host.
 //
 //   das_kai_live_monitor <seconds> [trace.csv]
+//   KINU_STREAM_TEST_NAMESPACE=<name> das_kai_live_monitor ...   (private ring)
 //
 // One status line per second on stdout. The optional CSV gets every write
 // ("w,<uptime ns>,<write position>") and every clock change
@@ -25,6 +26,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <memory>
+#include <string>
 #include <thread>
 
 namespace {
@@ -65,11 +67,26 @@ int main(int argc, char** argv) {
 
   const auto bytes = das::transport::requiredBytes(das::transport::kAudioCapacityFrames,
                                                     das::transport::kAudioChannels);
-  auto memory = das::transport::NamedSharedMemory::open(das::transport::kObsAudioMappingName, bytes);
+  // With KINU_STREAM_TEST_NAMESPACE set (the plug-in and the OBS source read
+  // the same variable), a private ring is used and made here if missing, so a
+  // test host can be measured while a real DAW keeps the real ring.
+  std::wstring name(das::transport::kObsAudioMappingName);
+  const auto* suffix = std::getenv("KINU_STREAM_TEST_NAMESPACE");
+  const bool isPrivate = suffix != nullptr && *suffix != '\0';
+  if (isPrivate) {
+    name.push_back(L'.');
+    while (*suffix != '\0') name.push_back(static_cast<unsigned char>(*suffix++));
+  }
+  auto memory = isPrivate ? das::transport::NamedSharedMemory::create(name, bytes)
+                          : das::transport::NamedSharedMemory::open(name, bytes);
   if (!memory.isOpen()) {
     std::fprintf(stderr, "no DAS Kai ring: is the plug-in loaded in a DAW?\n");
     return 2;
   }
+  if (isPrivate && !memory.alreadyExisted())
+    das::transport::RingBuffer::initialize(memory.storage(), das::transport::kAudioCapacityFrames,
+                                           das::transport::kAudioChannels,
+                                           das::transport::kAudioSampleRate);
   das::transport::RingBuffer ring(memory.storage());
   if (!ring.isCompatible()) {
     std::fprintf(stderr, "ring layout not compatible\n");
